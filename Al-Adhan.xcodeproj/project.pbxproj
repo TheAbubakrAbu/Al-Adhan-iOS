@@ -117,6 +117,10 @@
 		728E2EEE2E6E048300F2C24C /* SettingsAdhan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 728E2EEA2E6E048300F2C24C /* SettingsAdhan.swift */; };
 		729764BC2FE8DAFB00691EF5 /* WatchConnectivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 729764BA2FE8DAFB00691EF5 /* WatchConnectivity.swift */; };
 		729764BE2FE8DAFB00691EF5 /* WatchConnectivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 729764BA2FE8DAFB00691EF5 /* WatchConnectivity.swift */; };
+		72AF7B2F2FFF19B80036FE8C /* adhan-swift-main in Resources */ = {isa = PBXBuildFile; fileRef = 72AF7B2D2FFF19B80036FE8C /* adhan-swift-main */; };
+		72AF7B302FFF19B80036FE8C /* adhan-swift-main in Resources */ = {isa = PBXBuildFile; fileRef = 72AF7B2D2FFF19B80036FE8C /* adhan-swift-main */; };
+		72AF7B312FFF19B80036FE8C /* adhan-swift-main in Resources */ = {isa = PBXBuildFile; fileRef = 72AF7B2D2FFF19B80036FE8C /* adhan-swift-main */; };
+		72AF7B322FFF19B80036FE8C /* adhan-swift-main in Resources */ = {isa = PBXBuildFile; fileRef = 72AF7B2D2FFF19B80036FE8C /* adhan-swift-main */; };
 		72C30E8D2BCC648400F54570 /* Adhan in Frameworks */ = {isa = PBXBuildFile; productRef = 72C30E8C2BCC648400F54570 /* Adhan */; };
 		72C30E8F2BCC649400F54570 /* Adhan in Frameworks */ = {isa = PBXBuildFile; productRef = 72C30E8E2BCC649400F54570 /* Adhan */; };
 		72C30E912BCC649C00F54570 /* Adhan in Frameworks */ = {isa = PBXBuildFile; productRef = 72C30E902BCC649C00F54570 /* Adhan */; };
@@ -187,7 +191,6 @@
 /* Begin PBXFileReference section */
 		720CCE422E3960BB002DD82E /* Globals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Globals.swift; sourceTree = "<group>"; };
 		720DEC642D2456FF006EA342 /* CreditsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreditsView.swift; sourceTree = "<group>"; };
-		722A7F882D421F5F0040DC9C /* adhan-swift-main */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = "adhan-swift-main"; sourceTree = "<group>"; };
 		723CE2FA2FAF098400E83F5A /* NamesOfAllah.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = NamesOfAllah.json; sourceTree = "<group>"; };
 		723CE2FD2FAF099200E83F5A /* Uthmani.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Uthmani.ttf; sourceTree = "<group>"; };
 		724C667F2FF08EEE00C0E1BB /* PrayersProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrayersProvider.swift; sourceTree = "<group>"; };
@@ -255,6 +258,7 @@
 		728D76492F79DBDA00502B8A /* ArabicLetters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArabicLetters.swift; sourceTree = "<group>"; };
 		728E2EEA2E6E048300F2C24C /* SettingsAdhan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAdhan.swift; sourceTree = "<group>"; };
 		729764BA2FE8DAFB00691EF5 /* WatchConnectivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchConnectivity.swift; sourceTree = "<group>"; };
+		72AF7B2D2FFF19B80036FE8C /* adhan-swift-main */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = "adhan-swift-main"; sourceTree = "<group>"; };
 		72BC6B2F2E2D787D00ACD832 /* Logo.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = Logo.jpg; sourceTree = "<group>"; };
 		72C882842FEF37E3008FE6C8 /* CREDITS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CREDITS.md; sourceTree = "<group>"; };
 		72CCAE612D42CDAD00871A6A /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -298,14 +302,6 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		722A7F862D421F3E0040DC9C /* Packages */ = {
-			isa = PBXGroup;
-			children = (
-				722A7F882D421F5F0040DC9C /* adhan-swift-main */,
-			);
-			path = Packages;
-			sourceTree = "<group>";
-		};
 		724C66882FF08EEE00C0E1BB /* Adhan */ = {
 			isa = PBXGroup;
 			children = (
@@ -475,6 +471,14 @@
 			path = "Adhan Sounds";
 			sourceTree = "<group>";
 		};
+		72AF7B2E2FFF19B80036FE8C /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				72AF7B2D2FFF19B80036FE8C /* adhan-swift-main */,
+			);
+			path = Packages;
+			sourceTree = "<group>";
+		};
 		72CCAE5E2D42213700871A6A /* JSONs */ = {
 			isa = PBXGroup;
 			children = (
@@ -494,7 +498,7 @@
 				728D75F12F79D95100502B8A /* Adhan Sounds */,
 				72F1EA402D421CC7008F6FBE /* Fonts */,
 				72CCAE5E2D42213700871A6A /* JSONs */,
-				722A7F862D421F3E0040DC9C /* Packages */,
+				72AF7B2E2FFF19B80036FE8C /* Packages */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -649,6 +653,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				72AF7B312FFF19B80036FE8C /* adhan-swift-main in Resources */,
 				723CE2FB2FAF098400E83F5A /* NamesOfAllah.json in Resources */,
 				723CE3012FAF099200E83F5A /* Uthmani.ttf in Resources */,
 				72728C9A2B3D18E600FAA3B3 /* Assets.xcassets in Resources */,
@@ -659,6 +664,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				72AF7B322FFF19B80036FE8C /* adhan-swift-main in Resources */,
 				723CE2FC2FAF098400E83F5A /* NamesOfAllah.json in Resources */,
 				723CE2FE2FAF099200E83F5A /* Uthmani.ttf in Resources */,
 				72728CE02B3D204900FAA3B3 /* Assets.xcassets in Resources */,
@@ -669,6 +675,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				72AF7B2F2FFF19B80036FE8C /* adhan-swift-main in Resources */,
 				723CE3002FAF099200E83F5A /* Uthmani.ttf in Resources */,
 				72728D262B3D52BE00FAA3B3 /* Assets.xcassets in Resources */,
 			);
@@ -678,6 +685,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				72AF7B302FFF19B80036FE8C /* adhan-swift-main in Resources */,
 				723CE2FF2FAF099200E83F5A /* Uthmani.ttf in Resources */,
 				72728D5A2B3D538B00FAA3B3 /* Assets.xcassets in Resources */,
 			);
@@ -989,7 +997,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.5.2;
+				MARKETING_VERSION = 2.5.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1025,7 +1033,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.5.2;
+				MARKETING_VERSION = 2.5.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1056,7 +1064,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.5.2;
+				MARKETING_VERSION = 2.5.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times.watchkitapp";
 				PRODUCT_NAME = "Al-Adhan";
 				SDKROOT = watchos;
@@ -1090,7 +1098,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.5.2;
+				MARKETING_VERSION = 2.5.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times.watchkitapp";
 				PRODUCT_NAME = "Al-Adhan";
 				SDKROOT = watchos;
@@ -1120,7 +1128,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 2.5.2;
+				MARKETING_VERSION = 2.5.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times.Widget";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1148,7 +1156,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 2.5.2;
+				MARKETING_VERSION = 2.5.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times.Widget";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1176,7 +1184,7 @@
 					"@executable_path/../../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MARKETING_VERSION = 2.5.2;
+				MARKETING_VERSION = 2.5.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times.watchkitapp.Complication1";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
@@ -1206,7 +1214,7 @@
 					"@executable_path/../../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MARKETING_VERSION = 2.5.2;
+				MARKETING_VERSION = 2.5.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times.watchkitapp.Complication1";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
