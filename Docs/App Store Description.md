@@ -1,15 +1,9 @@
-Al-Islam is your complete companion for practicing Islam, whether you are a lifelong believer, a new convert, or simply exploring the faith. The Quran, prayer times, the Islamic calendar, and powerful learning tools come together in one beautifully simple app that is completely free, ad free, and private.
+Al-Adhan is your complete companion for daily prayer, whether you are a lifelong believer, a new convert, or simply exploring the faith. Prayer times, the Qibla, the Islamic calendar, and powerful learning tools come together in one beautifully simple app that is completely free, ad free, and private.
 
 UNIQUE FEATURES
 - Traveling Mode: Shorten prayers while traveling. It can turn on automatically based on your distance from home, or you can set it manually.
 - Nagging Mode: For anyone who struggles to pray on time. Choose a start time before each prayer, then get a reminder every 15 minutes until you pray.
 - Arabic Beginner Mode: New to the Arabic script? This mode spaces out each letter so they are easier to recognize while you learn to read.
-- Verse Sharing: Share any Quranic verse as clean text or a beautiful image in seconds.
-- Notes on Verses: Add personal reflections to any ayah.
-- Resume Anywhere: Jump back to your last read and last listened Surah and verse, with recent history saved.
-- Powerful Quran Search: Find any verse instantly using Surah:Ayah format (for example, 5:27), by page, by Juz, or by keyword across the entire Quran.
-- Clean Reading Options: Remove tashkeel (diacritics) for a simpler view, or turn it back on whenever you like.
-- Random Surah: Let the app pick a chapter for you and discover something new.
 
 PRAYER TIMES AND QIBLA
 - Accurate prayer times for any location, calculated privately on your device.
@@ -19,13 +13,7 @@ PRAYER TIMES AND QIBLA
 - Choose the adhan or notification sound you prefer.
 - View and plan today and future prayer times.
 - Look up prayer times for any other city, each using the method that fits its region.
-
-THE COMPLETE QURAN
-- Read by Surah, Juz, or page, with page and Juz dividers and a marker that always shows where you are.
-- Arabic text, English transliteration, and translation side by side.
-- Optional color coded tajweed with a dedicated reference to help you read and recite correctly.
-- Favorite Surahs and bookmark verses for later.
-- Listen to recitations from over 20 reciters, with full Surah and verse by verse playback.
+- See the other Asr time, Hanafi or standard, right inside the Asr details.
 
 ISLAMIC CALENDAR AND EVENTS
 - Hijri date shown in Arabic and English.
@@ -53,11 +41,11 @@ LEARN THE ARABIC ALPHABET
 - Adjust the size so everything is as large and clear as you need.
 
 MADE YOUR WAY
-- Customize Quran text size, Arabic fonts, accent colors, prayer settings, and more.
+- Customize Arabic text size, Arabic fonts, accent colors, prayer settings, and more.
 - Widgets and full Apple Watch support for prayer times on your home screen, lock screen, and wrist.
 - A clean, simple interface, easy to navigate.
 
 FREE, AD FREE, AND PRIVATE
-Al-Islam is completely free. No ads, no fees, and no subscriptions. Your data never leaves your device, so your experience stays private and secure.
+Al-Adhan is completely free. No ads, no fees, and no subscriptions. Your data never leaves your device, so your experience stays private and secure.
 
-Whether you want prayer times, the full Quran, or a deeper understanding of Islam, Al-Islam is your daily companion. Download it today and take the next step in your faith journey.
+Whether you want prayer times, the Qibla, or a deeper understanding of Islam, Al-Adhan is your daily companion. Download it today and take the next step in your faith journey.

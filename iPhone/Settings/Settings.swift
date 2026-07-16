@@ -92,6 +92,7 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
         
         super.init()
         Self.locationManager.delegate = self
+        runAdhanSoundStartupMigrations()
         isReadyForUI = true
 
         // Defer CoreLocation + NWPathMonitor startup off the synchronous init/first-paint path. Settings.shared
@@ -373,7 +374,7 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
     @AppStorage("naggingStartOffset") var naggingStartOffset: Int = 30 {
         didSet { self.fetchPrayerTimes(notification: true) }
     }
-    @AppStorage("adhanNotificationSound") var adhanNotificationSound: String = "egypt-30" {
+    @AppStorage("adhanNotificationSound") var adhanNotificationSound: String = Settings.defaultAdhanSoundID {
         didSet { self.fetchPrayerTimes(notification: true) }
     }
 
@@ -543,8 +544,11 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
     /// grow along with every other label.
     @AppStorage("arabicLetterSizeIndex") var arabicLetterSizeIndex: Int = 0
 
+    /// Starts at `.xSmall`, not `.large`: a floor is a *minimum*, so anchoring it at `.large` silently forced
+    /// the alphabet up to the default text size for anyone whose system Dynamic Type is set smaller. The
+    /// lowest slider position must mean "whatever the device is set to", which only `.xSmall` guarantees.
     static let arabicLetterDynamicTypeSizes: [DynamicTypeSize] =
-        [.large, .xLarge, .xxLarge, .xxxLarge, .accessibility1, .accessibility2, .accessibility3]
+        [.xSmall, .small, .medium, .large, .xLarge, .xxLarge, .xxxLarge, .accessibility1, .accessibility2, .accessibility3]
 
     var arabicLetterDynamicTypeSize: DynamicTypeSize {
         let sizes = Self.arabicLetterDynamicTypeSizes

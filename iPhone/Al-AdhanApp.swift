@@ -92,7 +92,12 @@ struct AlAdhanApp: App {
             WidgetCenter.shared.reloadAllTimelines()
         }
         .onChange(of: scenePhase) { phase in
-            if phase == .active { } else {
+            if phase == .active {
+                // Play the adhan in-app on time while open (the scheduled notification covers the closed
+                // case and can be delivered late by the system, especially on Mac/Catalyst).
+                ForegroundAdhanPlayer.shared.reschedule()
+            } else {
+                ForegroundAdhanPlayer.shared.stop()
                 // Send any just-made setting change before the app is suspended, so it can't be lost (and
                 // can't be reverted by a stale synced value on the next launch).
                 WatchConnectivityManager.shared.flushPendingSync()
@@ -113,6 +118,12 @@ struct AlAdhanApp: App {
                 // Always opaque underneath the covers. The launch/splash screens are opaque and simply fade
                 // themselves out (below) to reveal it — a clean single-layer dissolve, no mid-transition dip.
                 .zIndex(1)
+
+            // Above the tabs but below the covers: a letter / surah / name blown up to fill the screen. It
+            // lives here (rather than on the row that opened it) so it can sit over the tab bar and fade in
+            // as a plain overlay instead of a system sheet.
+            FocusOverlayHost()
+                .zIndex(1.5)
 
             if rootStage == .launch {
                 LaunchScreen(isLaunching: $isLaunching)
@@ -175,7 +186,6 @@ private struct MainTabView: View {
                 Tab("Adhan", systemImage: "mecca", value: AppTab.adhan) {
                     AdhanView()
                 }
-
                 Tab("Islam", systemImage: "moon.stars", value: AppTab.islam) {
                     IslamView()
                 }

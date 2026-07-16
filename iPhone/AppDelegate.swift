@@ -181,10 +181,11 @@ final class ForegroundAdhanPlayer: NSObject, ObservableObject {
         timer = nil
 
         // Only the actual adhan sound files play in-app; if "Default" is selected there's no adhan audio to
-        // play, so leave the system notification to handle the sound and just arm the next one.
+        // play, so leave the system notification to handle the sound and just arm the next one. In-app
+        // playback isn't bound by the notification sound's 30-second limit, so it uses the full recording.
         let settings = Settings.shared
-        guard let filename = settings.adhanSoundFilename(for: settings.adhanNotificationSound),
-              let path = Bundle.main.path(forResource: filename.replacingOccurrences(of: ".caf", with: ""), ofType: "caf") else {
+        guard let resource = settings.adhanFullSoundResource(for: settings.adhanNotificationSound),
+              let path = Bundle.main.path(forResource: resource, ofType: "caf") else {
             reschedule()
             return
         }
@@ -203,7 +204,6 @@ final class ForegroundAdhanPlayer: NSObject, ObservableObject {
     }
 
     private func playAdhan(path: String) {
-        // Pause in-app audio (Quran) so the adhan isn't talked over; resume it when the adhan finishes.
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default)
