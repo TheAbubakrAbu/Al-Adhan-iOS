@@ -119,10 +119,6 @@
 		728E2EEE2E6E048300F2C24C /* SettingsAdhan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 728E2EEA2E6E048300F2C24C /* SettingsAdhan.swift */; };
 		729764BC2FE8DAFB00691EF5 /* WatchConnectivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 729764BA2FE8DAFB00691EF5 /* WatchConnectivity.swift */; };
 		729764BE2FE8DAFB00691EF5 /* WatchConnectivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 729764BA2FE8DAFB00691EF5 /* WatchConnectivity.swift */; };
-		72AF7B2F2FFF19B80036FE8C /* adhan-swift-main in Resources */ = {isa = PBXBuildFile; fileRef = 72AF7B2D2FFF19B80036FE8C /* adhan-swift-main */; };
-		72AF7B302FFF19B80036FE8C /* adhan-swift-main in Resources */ = {isa = PBXBuildFile; fileRef = 72AF7B2D2FFF19B80036FE8C /* adhan-swift-main */; };
-		72AF7B312FFF19B80036FE8C /* adhan-swift-main in Resources */ = {isa = PBXBuildFile; fileRef = 72AF7B2D2FFF19B80036FE8C /* adhan-swift-main */; };
-		72AF7B322FFF19B80036FE8C /* adhan-swift-main in Resources */ = {isa = PBXBuildFile; fileRef = 72AF7B2D2FFF19B80036FE8C /* adhan-swift-main */; };
 		72C30E8D2BCC648400F54570 /* Adhan in Frameworks */ = {isa = PBXBuildFile; productRef = 72C30E8C2BCC648400F54570 /* Adhan */; };
 		72C30E8F2BCC649400F54570 /* Adhan in Frameworks */ = {isa = PBXBuildFile; productRef = 72C30E8E2BCC649400F54570 /* Adhan */; };
 		72C30E912BCC649C00F54570 /* Adhan in Frameworks */ = {isa = PBXBuildFile; productRef = 72C30E902BCC649C00F54570 /* Adhan */; };
@@ -274,7 +270,6 @@
 		728D76492F79DBDA00502B8A /* ArabicLetters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArabicLetters.swift; sourceTree = "<group>"; };
 		728E2EEA2E6E048300F2C24C /* SettingsAdhan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAdhan.swift; sourceTree = "<group>"; };
 		729764BA2FE8DAFB00691EF5 /* WatchConnectivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchConnectivity.swift; sourceTree = "<group>"; };
-		72AF7B2D2FFF19B80036FE8C /* adhan-swift-main */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = "adhan-swift-main"; sourceTree = "<group>"; };
 		72BC6B2F2E2D787D00ACD832 /* Logo.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = Logo.jpg; sourceTree = "<group>"; };
 		72C882842FEF37E3008FE6C8 /* CREDITS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CREDITS.md; sourceTree = "<group>"; };
 		72CCAE612D42CDAD00871A6A /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -504,7 +499,6 @@
 		72AF7B2E2FFF19B80036FE8C /* Packages */ = {
 			isa = PBXGroup;
 			children = (
-				72AF7B2D2FFF19B80036FE8C /* adhan-swift-main */,
 			);
 			path = Packages;
 			sourceTree = "<group>";
@@ -683,7 +677,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				72AF7B312FFF19B80036FE8C /* adhan-swift-main in Resources */,
 				723CE2FB2FAF098400E83F5A /* NamesOfAllah.json in Resources */,
 				723CE3012FAF099200E83F5A /* Uthmani.ttf in Resources */,
 				72728C9A2B3D18E600FAA3B3 /* Assets.xcassets in Resources */,
@@ -694,7 +687,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				72AF7B322FFF19B80036FE8C /* adhan-swift-main in Resources */,
 				723CE2FC2FAF098400E83F5A /* NamesOfAllah.json in Resources */,
 				723CE2FE2FAF099200E83F5A /* Uthmani.ttf in Resources */,
 				72728CE02B3D204900FAA3B3 /* Assets.xcassets in Resources */,
@@ -705,7 +697,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				72AF7B2F2FFF19B80036FE8C /* adhan-swift-main in Resources */,
 				723CE3002FAF099200E83F5A /* Uthmani.ttf in Resources */,
 				72728D262B3D52BE00FAA3B3 /* Assets.xcassets in Resources */,
 			);
@@ -715,7 +706,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				72AF7B302FFF19B80036FE8C /* adhan-swift-main in Resources */,
 				723CE2FF2FAF099200E83F5A /* Uthmani.ttf in Resources */,
 				72728D5A2B3D538B00FAA3B3 /* Assets.xcassets in Resources */,
 			);
@@ -1311,7 +1301,7 @@
 /* Begin XCLocalSwiftPackageReference section */
 		72728CA52B3D196B00FAA3B3 /* XCLocalSwiftPackageReference "adhan-swift-main" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "adhan-swift-main";
+			relativePath = "Resources/Packages/adhan-swift-main";
 		};
 /* End XCLocalSwiftPackageReference section */
 
