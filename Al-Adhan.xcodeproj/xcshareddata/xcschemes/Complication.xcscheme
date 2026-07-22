@@ -75,12 +75,21 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
+            BlueprintIdentifier = "72728D442B3D535600FAA3B3"
+            BuildableName = "Complication.appex"
+            BlueprintName = "Complication"
+            ReferencedContainer = "container:Al-Adhan.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
+      <MacroExpansion>
+         <BuildableReference
+            BuildableIdentifier = "primary"
             BlueprintIdentifier = "72728CC62B3D1FF900FAA3B3"
             BuildableName = "Al-Adhan.app"
             BlueprintName = "Watch"
             ReferencedContainer = "container:Al-Adhan.xcodeproj">
          </BuildableReference>
-      </BuildableProductRunnable>
+      </MacroExpansion>
       <EnvironmentVariables>
          <EnvironmentVariable
             key = "_XCWidgetKind"
