@@ -8,10 +8,10 @@ import WidgetKit
 /// Designed to avoid the failure modes the previous version had:
 /// - **Never transmits a default.** A snapshot carries *only* settings this device has actually set, and the
 ///   receiver only writes keys that are present. So a payload can never reset an unmentioned (or freshly
-///   installed) setting to its default — the cause of settings randomly flipping on/off or "all resetting."
+///   installed) setting to its default - the cause of settings randomly flipping on/off or "all resetting."
 /// - **Wall-clock recency + device tiebreak.** Each payload carries the real timestamp of the write plus
 ///   the originating device's rank (iPhone outranks the watch). A device applies an incoming payload only
-///   if it is *newer* than everything it has already sent or applied — strictly later in time, or, only
+///   if it is *newer* than everything it has already sent or applied - strictly later in time, or, only
 ///   when two writes share the exact same instant, made by the higher-ranked device. So the literally
 ///   newest edit always wins and iPhone wins ties, instead of a logical counter letting a stale-but-busier
 ///   device clobber a newer one (which looked like settings randomly "resetting").
@@ -30,7 +30,7 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
 
     /// Local persistent store (per-device; app groups don't sync across devices). Persisting the sync
     /// bookkeeping is what prevents a stale `applicationContext` from being re-applied over a newer local
-    /// change on relaunch — the "change a setting, reopen, it reverts" bug.
+    /// change on relaunch - the "change a setting, reopen, it reverts" bug.
     private let store: UserDefaults
     private static let timestampKey = "watchSync.knownTimestamp"
     private static let rankKey = "watchSync.knownRank"
@@ -42,7 +42,7 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
     /// and freezing out our legitimately-newer edits.
     private static let maxClockSkew: TimeInterval = 60 * 60
 
-    /// Serialized form of the settings dict we last sent or applied — used to skip no-op/echo sends.
+    /// Serialized form of the settings dict we last sent or applied - used to skip no-op/echo sends.
     private var lastSyncedSettingsData: Data {
         didSet { store.set(lastSyncedSettingsData, forKey: Self.lastSyncedKey) }
     }
@@ -67,6 +67,10 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
     #endif
 
     private override init() {
+        // Let `Settings` run its startup migrations first. One of them clears the sync digest to force a
+        // re-push; snapshotting the digest before that runs would resurrect the stale value.
+        _ = Settings.shared.isReadyForUI
+
         let store = UserDefaults(suiteName: AppIdentifiers.appGroupSuiteName) ?? .standard
         self.store = store
         self.knownTimestamp = store.double(forKey: Self.timestampKey)
@@ -99,7 +103,6 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
         let snapshot = Settings.shared.watchSyncSnapshot()
         guard let data = try? JSONSerialization.data(withJSONObject: snapshot, options: [.sortedKeys]) else { return }
         guard data != lastSyncedSettingsData else { return }   // no real change, or an echo of what we just applied
-        lastSyncedSettingsData = data
 
         // Stamp the write with the real wall clock so the newest edit always wins. If the clock hasn't
         // advanced past our last stamp (rapid successive edits, or a backward clock correction), nudge just
@@ -112,11 +115,21 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
 
         let payload: [String: Any] = ["timestamp": ts, "rank": deviceRank, "settings": snapshot]
 
-        do { try session.updateApplicationContext(payload) }
-        catch { logger.debug("WC updateApplicationContext error: \(error)") }
+        do {
+            try session.updateApplicationContext(payload)
+            // Recorded only AFTER the reliable channel accepted the payload. Recording before the send
+            // meant a failed write still marked the change "already synced", silently losing it until some
+            // unrelated edit happened to bump the digest; now the next trigger (settings change, background
+            // flush, reachability change, activation) simply rebuilds and retries it.
+            lastSyncedSettingsData = data
+        } catch {
+            logger.debug("WC updateApplicationContext error: \(error)")
+        }
 
         if session.isReachable {
             session.sendMessage(payload, replyHandler: nil) { err in
+                // No digest involvement here: applicationContext (above) is the reliable channel and has
+                // this payload queued; the message is only the fast path for a peer that is open right now.
                 logger.debug("WC sendMessage error: \(err.localizedDescription)")
             }
         }
@@ -128,18 +141,22 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
         guard let ts = payload["timestamp"] as? Double,
               let rank = payload["rank"] as? Int,
               let settings = payload["settings"] as? [String: Any] else { return }
-        // Ignore a timestamp absurdly far in our future — a peer with a badly mis-set clock — so it can't
+        // Ignore a timestamp absurdly far in our future - a peer with a badly mis-set clock - so it can't
         // pin our sync ahead and freeze out our own legitimately-newer edits.
         guard ts <= Date().timeIntervalSince1970 + Self.maxClockSkew else { return }
         // Accept only writes newer than anything we've sent or applied: a strictly later wall-clock time,
-        // or — only as a tiebreak for the exact same instant — a higher-ranked device (iPhone > watch).
+        // or - only as a tiebreak for the exact same instant - a higher-ranked device (iPhone > watch).
         let isNewer = ts > knownTimestamp || (ts == knownTimestamp && rank > knownRank)
         guard isNewer else { return }
         knownTimestamp = ts
         knownRank = rank
 
-        // Remember the applied content so the change it triggers locally isn't echoed back.
+        // A newer-stamped payload whose *content* matches what we last sent or applied changes nothing -
+        // record the recency and stop. Applying it anyway used to run the full force-fetch tail on every
+        // such delivery.
         if let data = try? JSONSerialization.data(withJSONObject: settings, options: [.sortedKeys]) {
+            guard data != lastSyncedSettingsData else { return }
+            // Remember the applied content so the change it triggers locally isn't echoed back.
             lastSyncedSettingsData = data
         }
 
@@ -155,7 +172,7 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
         logger.debug("WC activation → \(activationState.rawValue)")
 
         // Apply any context that arrived while we were inactive (rejected if not strictly newer than what
-        // we already know), then push any local change that wasn't sent before — between them, the latest
+        // we already know), then push any local change that wasn't sent before - between them, the latest
         // value always wins and both devices converge regardless of who was open when. Hop to main first:
         // this delegate runs on a background queue, and all sync bookkeeping must be touched only there.
         if activationState == .activated {
@@ -168,19 +185,47 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
         }
 
         #if os(watchOS)
-        // Now that we know whether the iPhone app is installed, (re)schedule prayer notifications
-        // on the watch if it needs to handle them itself.
+        // Now that we know whether the iPhone app is installed, (re)schedule prayer notifications on
+        // the watch if it needs to handle them itself. `notification: true` is load-bearing: the launch
+        // fetch usually ran (and was dropped by the ownership guard) BEFORE activation resolved, so by
+        // now the prayers are fresh and a plain fetch would find nothing to do - `needsFetch == false`,
+        // no scheduling pass, and a standalone watch got ZERO adhans until the next day-rollover fetch.
+        // The forced notification pass also re-runs the paired-watch stale-schedule wipe.
         if activationState == .activated {
             Task { @MainActor in
-                Settings.shared.fetchPrayerTimes()
+                Settings.shared.fetchPrayerTimes(notification: true)
             }
         }
         #endif
     }
 
+    /// The peer just came within reach (its app opened, Bluetooth reconnected). Everything already synced is
+    /// a digest-guarded no-op; what this actually delivers is the retry for a change whose reliable send
+    /// failed (see the rollback in `sendSnapshotIfChanged`) - that change would otherwise wait for the next
+    /// unrelated edit.
+    func sessionReachabilityDidChange(_ session: WCSession) {
+        guard session.isReachable else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.sendSnapshotIfChanged()
+        }
+    }
+
     #if os(iOS)
     func sessionDidBecomeInactive(_ session: WCSession) {}
     func sessionDidDeactivate(_ session: WCSession) { session.activate() }
+
+    /// A watch was paired or the watch app was just installed. That watch has never seen our settings, and
+    /// the digest can't know that - it only remembers what we last handed the session. Clearing it forces a
+    /// full snapshot push so the new watch starts from the phone's config instead of its own defaults until
+    /// the user happens to change something.
+    func sessionWatchStateDidChange(_ session: WCSession) {
+        guard session.isPaired, session.isWatchAppInstalled else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.lastSyncedSettingsData = Data()
+            self.sendSnapshotIfChanged()
+        }
+    }
     #endif
 
     func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
@@ -195,7 +240,7 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
 // MARK: - Settings snapshot for Watch ⇄ iPhone sync
 //
 // Lives with the WatchConnectivity code (its only caller) rather than in SettingsAdhan, because the synced
-// set is cross-cutting — appearance + prayer/adhan + Quran + tajweed + sharing — not Adhan-specific.
+// set is cross-cutting - appearance + prayer/adhan + Quran + tajweed + sharing - not Adhan-specific.
 extension Settings {
 
     /// `@AppStorage` (UserDefaults.standard) keys that are safe to mirror between iPhone and Watch.
@@ -205,8 +250,10 @@ extension Settings {
         // Appearance & general
         "colorSchemeString", "defaultView", "hapticOn",
         // Prayer / notifications
-        "calculationAutomatic", "travelAutomatic", "switchHijriDateAtMaghrib", "dateNotifications",
+        "calculationAutomatic", "switchHijriDateAtMaghrib", "dateNotifications",
         "naggingMode", "naggingStartOffset", "adhanNotificationSound", "showPrayerInfo",
+        "shortAdhanFajr", "shortAdhanDhuhr", "shortAdhanAsr", "shortAdhanMaghrib", "shortAdhanIsha",
+        "adhanSoundFajr", "adhanSoundDhuhr", "adhanSoundAsr", "adhanSoundMaghrib", "adhanSoundIsha",
         "notificationFajr", "notificationSunrise", "notificationDhuhr", "notificationAsr",
         "notificationMaghrib", "notificationIsha", "notificationDuha", "notificationIslamicMidnight",
         "notificationLastThird", "showDuha", "showIslamicMidnight", "showLastThird",
@@ -221,8 +268,8 @@ extension Settings {
         "cleanArabicText", "removeArabicDots", "beginnerMode", "highlightAllahNames",
         "useFontArabic", "THEfontArabic", "fontArabicSize", "englishFontSize",
         "showTajweedColors", "reciter", "reciterId", "reciteType", "displayQiraah",
-        "showOtherQiraatReciters", "qiraatComparisonMode", "ignoreSilentLettersInQuranSearch",
-        "quranSummaryMode", "quranGridMode", "quranPageMode", "showFullSurahRow", "showMuqattaatHelper",
+        "showOtherQiraatReciters", "qiraatComparisonMode",
+        "quranSummaryMode", "quranGridMode", "quranPageMode", "mushafPageLanguage", "showFullSurahRow", "showMuqattaatHelper",
         "showPageJuzDividers", "searchForSurahs", "showBookmarks", "showFavorites",
         "saveLastReadAyah", "saveLastListenedSurah", "saveLastListenedAyah", "showAyahOfTheDay",
         // Tajweed categories
@@ -238,25 +285,36 @@ extension Settings {
     ]
 
     /// A snapshot of the synced settings, containing **only keys this device has actually set**. A value
-    /// the user never touched is absent from its backing store, so it is left out — and the receiver only
+    /// the user never touched is absent from its backing store, so it is left out - and the receiver only
     /// writes keys that are present. That is the core safeguard against the "everything reset" bug: a
     /// freshly-installed (or never-configured) device cannot broadcast its defaults over an established
     /// peer, because it transmits nothing for settings it doesn't hold.
     func watchSyncSnapshot() -> [String: Any] {
         var dict: [String: Any] = [:]
 
-        // Core @Published settings live in the app-group store; their `didSet` only writes once changed,
-        // so `object(forKey:) != nil` means the user (or a prior sync) genuinely set this value.
-        let appGroup = UserDefaults(suiteName: AppIdentifiers.appGroupSuiteName)
-        if appGroup?.object(forKey: "accentColor") != nil { dict["accentColor"] = accentColor.rawValue }
-        if appGroup?.object(forKey: "customAccentColorHex") != nil { dict["customAccentColorHex"] = customAccentColorHex }
-        if appGroup?.object(forKey: "customBackgroundColorHex") != nil { dict["customBackgroundColorHex"] = customBackgroundColorHex }
-        if appGroup?.object(forKey: "prayerCalculation") != nil { dict["prayerCalculation"] = prayerCalculation }
-        if appGroup?.object(forKey: "hanafiMadhab") != nil { dict["hanafiMadhab"] = hanafiMadhab }
-        if appGroup?.object(forKey: "travelingMode") != nil { dict["travelingMode"] = travelingMode }
-        if appGroup?.object(forKey: "hijriOffset") != nil { dict["hijriOffset"] = hijriOffset }
+        // Core @Published settings live in the app-group store. Transmit one only if it was *chosen* - the
+        // mere existence of the key isn't enough, because a process that assigns a default creates the key
+        // too. See `Settings.explicitlySetKeys`.
+        let chosen = explicitlySetKeys
+        if chosen.contains("accentColor") { dict["accentColor"] = accentColor.rawValue }
+        if chosen.contains("customAccentColorHex") { dict["customAccentColorHex"] = customAccentColorHex }
+        if chosen.contains("customBackgroundColorHex") { dict["customBackgroundColorHex"] = customBackgroundColorHex }
+        if chosen.contains("hanafiMadhab") { dict["hanafiMadhab"] = hanafiMadhab }
+        if chosen.contains("hijriOffset") { dict["hijriOffset"] = hijriOffset }
+        if chosen.contains("highLatitudeRule") { dict["highLatitudeRule"] = highLatitudeRule }
+        if chosen.contains("customPrayerNames") { dict["customPrayerNames"] = customPrayerNames }
 
-        // @AppStorage settings — likewise only keys that have been explicitly written.
+        // `travelingMode` syncs ONE WAY: phone -> watch, value only. The phone is the sole authority -
+        // it owns the home location and every auto-check. A watch-side flip stays on the watch (its
+        // snapshot simply never carries the key), so the watch can never overwrite the phone's state.
+        #if os(iOS)
+        if chosen.contains("travelingMode") { dict["travelingMode"] = travelingMode }
+        #endif
+        // `prayerCalculation` keeps the gate: BOTH devices can derive it (it needs no home location), so the
+        // two-deriving-devices loop is still real there. Only a manual choice (automatic OFF) travels.
+        if chosen.contains("prayerCalculation"), !calculationAutomatic { dict["prayerCalculation"] = prayerCalculation }
+
+        // @AppStorage settings - likewise only keys that have been explicitly written.
         let store = UserDefaults.standard
         for key in Self.watchSyncedAppStorageKeys where store.object(forKey: key) != nil {
             dict[key] = store.object(forKey: key)
@@ -265,25 +323,60 @@ extension Settings {
     }
 
     /// Apply a snapshot received from the paired device. Only keys actually present are written, via the
-    /// real setters (so persistence + side effects fire correctly), then a single recompute/refresh.
+    /// real setters (so persistence + side effects fire correctly), then a single recompute/refresh - and
+    /// only if something actually changed. A payload that changes nothing must be a complete no-op: the
+    /// force-fetch it used to run unconditionally rescheduled notifications and re-ran the travel/calculation
+    /// auto-checks every time the watch was merely opened, which is where the phantom phone notifications
+    /// came from.
     @MainActor
     func applyWatchSyncSnapshot(_ dict: [String: Any]) {
-        if let raw = dict["accentColor"] as? String, let c = AccentColor(rawValue: raw), c != accentColor { accentColor = c }
-        if let v = dict["customAccentColorHex"] as? String, v != customAccentColorHex { customAccentColorHex = v }
-        if let v = dict["customBackgroundColorHex"] as? String, v != customBackgroundColorHex { customBackgroundColorHex = v }
-        if let v = dict["prayerCalculation"] as? String, v != prayerCalculation { prayerCalculation = v }
-        if let v = dict["hanafiMadhab"] as? Bool, v != hanafiMadhab { hanafiMadhab = v }
-        if let v = dict["travelingMode"] as? Bool, v != travelingMode { travelingMode = v }
-        if let v = dict["hijriOffset"] as? Int, v != hijriOffset { hijriOffset = v }
+        var changed = false
+
+        if let raw = dict["accentColor"] as? String, let c = AccentColor(rawValue: raw), c != accentColor { accentColor = c; changed = true }
+        if let v = dict["customAccentColorHex"] as? String, v != customAccentColorHex { customAccentColorHex = v; changed = true }
+        if let v = dict["customBackgroundColorHex"] as? String, v != customBackgroundColorHex { customBackgroundColorHex = v; changed = true }
+        if let v = dict["hanafiMadhab"] as? Bool, v != hanafiMadhab { hanafiMadhab = v; changed = true }
+        if let v = dict["hijriOffset"] as? Int, v != hijriOffset { hijriOffset = v; changed = true }
+        if let v = dict["highLatitudeRule"] as? String, v != highLatitudeRule { highLatitudeRule = v; changed = true }
+        if let v = dict["customPrayerNames"] as? [String: String], v != customPrayerNames { customPrayerNames = v; changed = true }
+
+        // These two arrive only when the sender's automatic mode is off (see `watchSyncSnapshot`), so they
+        // are the user's manual choice; the recompute below runs with auto-checks off so this device cannot
+        // immediately overwrite them.
+        if let v = dict["prayerCalculation"] as? String, v != prayerCalculation {
+            prayerCalculation = v
+            changed = true
+        }
+        // Phone -> watch only: the watch adopts the phone's travelingMode; the phone ignores the key
+        // entirely (an older watch build may still send it - it must not win).
+        #if os(watchOS)
+        if let v = dict["travelingMode"] as? Bool, v != travelingMode {
+            travelingMode = v
+            changed = true
+        }
+        #endif
 
         let store = UserDefaults.standard
-        for key in Self.watchSyncedAppStorageKeys where dict[key] != nil {
-            store.set(dict[key], forKey: key)
+        for key in Self.watchSyncedAppStorageKeys {
+            guard let incoming = dict[key] else { continue }
+            let current = store.object(forKey: key)
+            // NSObject equality covers every plist type the snapshot can carry (numbers, strings, arrays, dicts).
+            if let current = current as? NSObject, let incoming = incoming as? NSObject, current == incoming { continue }
+            store.set(incoming, forKey: key)
+            changed = true
         }
+
+        // switchHijriDateAtMaghrib lives in standard defaults but is mirrored into the App Group for the
+        // widget/complication providers; the raw store.set above bypasses its didSet, so refresh the mirror.
+        // On the watch this is the main write path for the key - the complication would never see it otherwise.
+        UserDefaults(suiteName: AppIdentifiers.appGroupSuiteName)?
+            .setValue(switchHijriDateAtMaghrib, forKey: "switchHijriDateAtMaghrib")
+
+        guard changed else { return }
 
         objectWillChange.send()
         updateDates()
-        fetchPrayerTimes(force: true)
+        fetchPrayerTimes(force: true, runAutoChecks: false)
         #if os(iOS) || os(watchOS)
         WidgetCenter.shared.reloadAllTimelines()
         #endif

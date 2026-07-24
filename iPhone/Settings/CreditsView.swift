@@ -2,15 +2,12 @@
 import SwiftUI
 
 struct CreditsView: View {
-    @EnvironmentObject var settings: Settings
+    @ObservedObject var settings = Settings.shared
     @Environment(\.presentationMode) private var presentationMode
     
     var body: some View {
         NavigationView {
             creditsList
-                .adaptiveSafeArea(edge: .bottom) {
-                    doneButton
-                }
         }
     }
 
@@ -26,11 +23,14 @@ struct CreditsView: View {
         }
         .applyConditionalListStyle()
         .navigationTitle("Credits")
+        // Dismisses through the same X every other sheet uses, instead of a full-width "Done" button pinned
+        // over the bottom of the content.
+        .sheetDismissToolbar()
     }
 
     private var headerSection: some View {
         VStack(alignment: .center) {
-            Text("Al-Adhan was created by Abubakr Elmallah (أبوبكر الملاح), who was a 17-year-old high school student when this app was published on December 31, 2023.")
+            Text("Al-Islam was created by Abubakr Elmallah (أبوبكر الملاح), who was a 17-year-old high school student when this app was published on July 26, 2023.")
                 .font(.headline)
                 .padding(.vertical, 4)
                 .multilineTextAlignment(.center)
@@ -100,18 +100,18 @@ struct CreditsView: View {
         Section {
             VersionNumber()
                 .font(.caption)
+                .padding(.vertical, 2)
         }
     }
 
     private var creditsLinksSection: some View {
         Section(header: Text("CREDITS")) {
             Group {
+                // Al-Adhan
                 creditLink("Credit for the Adhan calculations, which does everything offline on the device, goes to Batoul Apps", url: "https://github.com/batoulapps/adhan-swift")
                 
                 creditLink("Credit for the Adhan sounds goes to Omar Al-Ejel", url: "https://github.com/oalejel/Athan-Utility")
                 
-                creditLink("Credit for the Uthmani Quran font goes to King Fahad Complex (KFGQPC)", url: "https://qul.tarteel.ai/resources/font/245")
-
                 creditLink("Credit for the 99 Names of Allah goes to MyIslam", url: "https://myislam.org/99-names-of-allah/")
             }
             .foregroundColor(settings.accentColor.color)
@@ -137,7 +137,7 @@ struct CreditsView: View {
 
     private var intentSection: some View {
         Section(header: Text("A NOTE ON INTENT")) {
-            Text("This app is offered as *sadaqah jariyah* — a contribution for the benefit of the Muslim community and anyone building tools to read, learn, and listen to the Quran. If it helps you, please keep the chain of attribution intact and consider contributing improvements back.")
+            Text("This app is offered as *sadaqah jariyah* - a contribution for the benefit of the Muslim community and anyone building tools to read, learn, and listen to the Quran. If it helps you, please keep the chain of attribution intact and consider contributing improvements back.")
                 .font(.body)
                 .multilineTextAlignment(.leading)
         }
@@ -200,7 +200,7 @@ struct AppItem: Identifiable {
 }
 
 struct AppLinkRow: View {
-    @EnvironmentObject var settings: Settings
+    @ObservedObject var settings = Settings.shared
     
     var imageName: String
     var title: String

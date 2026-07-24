@@ -14,9 +14,18 @@ extension EnvironmentValues {
     }
 }
 
+/// Live mirror of the reveal state for code that checks it from ESCAPING tasks. A value-type modifier's
+/// captured `@Environment(\.appRevealed)` snapshot freezes at capture time - the review prompt's retry
+/// loop, whose capture chain starts before the launch cover lifts, read a stale `false` forever and
+/// silently suppressed the prompt for the whole session. Defaults to `true` for the same reason as the
+/// environment key (Watch app, previews); only the iPhone app root writes it.
+@MainActor enum AppReveal {
+    static var revealed = true
+}
+
 struct AdhanView: View {
-    @EnvironmentObject var settings: Settings
-    
+    @ObservedObject var settings = Settings.shared
+
     @Environment(\.scenePhase) private var scenePhase
     // False while this view is being built behind the launch/splash cover; holds prompts until we're on screen.
     @Environment(\.appRevealed) private var appRevealed
@@ -65,11 +74,27 @@ struct AdhanView: View {
         .confirmationDialog(
             dialogTitle,
             isPresented: Binding(
-                // Hold the prompt until the app is actually revealed — otherwise a calc/travel change detected
+                // Hold the prompt until the app is actually revealed - otherwise a calc/travel change detected
                 // while AdhanView is still building behind the launch screen would pop a dialog over it. The
                 // pending `showAlert` (or the standing flag via `nextAlertToPresent`) still presents at reveal.
                 get: { showAlert != nil && appRevealed },
-                set: { if !$0 { showAlert = nil } }
+                set: { presented in
+                    guard !presented else { return }
+                    // ANY dismissal counts as seen - the system Cancel button and a tap outside included.
+                    // Only the two action buttons used to clear the standing travel/calculation flags, so
+                    // cancelling left the flag armed and the same dialog re-presented on every refresh,
+                    // forever. Cancelling now means "accept what was auto-detected, silently."
+                    // (Clearing again after an action button is a harmless no-op.)
+                    switch showAlert {
+                    case .travelTurnOnAutomatic, .travelTurnOffAutomatic:
+                        settings.resetTravelAutomaticFlags()
+                    case .calculationAutomaticChanged:
+                        settings.confirmAutomaticCalculationChange()
+                    default:
+                        break
+                    }
+                    showAlert = nil
+                }
             ),
             titleVisibility: .visible
         ) {
@@ -83,33 +108,56 @@ struct AdhanView: View {
         List {
             Group {
                 #if os(iOS)
-                DateAndLocationSection(showBigQibla: $showBigQibla)
+                // Date/location and the sky are their own sections again - sharing one made the sky's rounded
+                // card fight the rows above it. `compactListSectionSpacing` below closes the gap between them
+                // so they still read as one stacked header rather than two floating islands.
+                Section {
+                    DateAndLocationSection(showBigQibla: $showBigQibla)
+                }
+
+                if settings.showSkyView, settings.prayers != nil, settings.currentLocation != nil {
+                    Section {
+                        SkyView()
+                            .listRowBackground(Color.clear)
+                    }
+                }
 
                 prayersSection
 
-                Section(header: Text("LOCATION AND CALCULATION")) {
-                    LocationCalculationCard()
+                // The tracker is its own section directly beneath the times: marking prayers is a
+                // different activity from reading them, and it carries its own header, streak and
+                // history entry point (see PrayerTrackerView.swift).
+                PrayerTrackerSection()
+
+                Section(header: Text("AT A GLANCE")) {
+                    GlanceCard()
                 }
                 #else
-                // Watch order: prayer times first (2 per row), then countdown, then city, then qibla.
+                // Watch: the countdown and prayer times come first (that's the whole reason you raised your
+                // wrist), then one compact card holding the date, the city and the Qibla - three separate
+                // full-width rows was most of a screen's worth of scrolling for information you glance at.
                 prayersSection
 
-                watchCityRow
-                watchQiblaRow
-
-                if let hijriDate = settings.hijriDate {
-                    HijriDateRow(hijriDate: hijriDate)
+                Section {
+                    watchPlaceCard
                 }
                 #endif
             }
             .themedListRowBackground()
         }
+        // Sections stay separate but sit close together, so the header cards stack instead of drifting apart.
+        .compactListSectionSpacing()
         .refreshable {
+            // A manual refresh means "where am I NOW" - force a fresh fix, not just a re-geocode of the
+            // stored coordinates (which, after a flight, faithfully re-resolved the departure city).
+            settings.refreshLocationIfStale(olderThan: 30)
             prayerTimeRefresh(force: true)
         }
         .onAppear {
             prayerTimeRefresh(force: false)
             settings.beginLocationRefinement()
+
+
         }
         .onDisappear {
             settings.endLocationRefinement()
@@ -120,45 +168,27 @@ struct AdhanView: View {
                 settings.beginLocationRefinement()
             }
         }
-        // Present the automatic-change confirmation the moment the flag flips, from ANY code path that runs
-        // checkIfTraveling()/the auto-calculation change — not only after a prayer-fetch completion. That
-        // gating made the dialog lag (waited for the fetch) and often never appear (when the flag flipped
-        // from a fetch not routed through prayerTimeRefresh).
-        // Consume each flag the instant it flips: capture it into `showAlert` (which now owns the
-        // presentation) and immediately reset the @AppStorage flag. Otherwise the flag stayed set
-        // until the user tapped a button — so a tap-outside dismissal, or simply leaving and
-        // re-entering this tab (onAppear → fetch → nextAlertToPresent), re-presented the same dialog.
-        .onChange(of: settings.travelTurnOnAutomatic) { on in
-            if on {
-                showAlert = .travelTurnOnAutomatic
-                settings.travelTurnOnAutomatic = false
-            }
-        }
-        .onChange(of: settings.travelTurnOffAutomatic) { off in
-            if off {
-                showAlert = .travelTurnOffAutomatic
-                settings.travelTurnOffAutomatic = false
-            }
-        }
-        .onChange(of: settings.calculationAutoChanged) { changed in
-            if changed {
-                showAlert = .calculationAutomaticChanged
-                settings.calculationAutoChanged = false
-            }
-        }
-        // Belt-and-suspenders for the dialog: when a travel/calculation change is auto-detected while this
-        // view isn't actively on screen — in the background, or behind the launch cover — the `.onChange`
-        // handlers above can miss the flag flip (their baseline was captured while it was still false). The
-        // standing @AppStorage flag persists, so the instant the app is revealed, present it directly instead
-        // of depending on a later prayer-fetch completion firing.
-        .onChange(of: appRevealed) { revealed in
-            if revealed && showAlert == nil {
-                showAlert = nextAlertToPresent
-            }
-        }
+        // The dialog is presented from ONE place only: the completion of a prayer refresh (see
+        // `prayerTimeRefresh`), a beat later. It is deliberately NOT presented from an `.onChange` on the
+        // travel/calculation flags. Watching those flags means the dialog fires the instant the flag flips - 
+        // from any background path, whether or not this screen is even on screen - which is what made it
+        // re-present over and over. The flags are cleared by the dialog's own buttons (`confirmTravelAutomaticChange`
+        // / `overrideTravelingMode`), so a change that happens while you're away is still waiting for you the
+        // next time the tab refreshes, and is announced exactly once.
         .navigationTitle("Al-Adhan")
         #if os(iOS)
         .toolbar {
+            // Leading toolbar is the first accent, trailing is the second - the same split the app uses for
+            // sections. With a single-color accent the two are identical, so nothing changes visually there.
+            ToolbarItem(placement: .navigationBarLeading) {
+                NavigationLink {
+                    PrayerCalendarView()
+                } label: {
+                    Image(systemName: "calendar")
+                }
+                .simultaneousGesture(TapGesture().onEnded { settings.hapticFeedback() })
+                .tint(settings.accentColor.accent1)
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     settings.hapticFeedback()
@@ -166,6 +196,7 @@ struct AdhanView: View {
                 } label: {
                     Image(systemName: "gear")
                 }
+                .tint(settings.accentColor.accent2)
             }
         }
         .sheet(isPresented: $showingSettingsSheet) {
@@ -182,54 +213,109 @@ struct AdhanView: View {
     private var prayersSection: some View {
         #if os(iOS)
         if settings.prayers != nil && settings.currentLocation != nil {
-            PrayerCountdown()
+            // With the sky on, the countdown rides inside its card (see `SkyView.countdownStrip`). With the
+            // sky off, it returns to being its own section - nothing is lost by turning the drawing off.
+            if !settings.showSkyView {
+                // Equatable-gated: the countdown invalidates itself via its own timer and Settings
+                // observation, so re-runs of this body (sheet flags, scroll state) can skip it.
+                PrayerCountdown()
+                    .equatable()
+            }
             PrayerList()
         }
         #else
         if settings.prayers != nil {
             PrayerList()
             PrayerCountdown()
+                .equatable()
         }
         #endif
     }
 
     #if os(watchOS)
-    private var watchCityRow: some View {
-        HStack(spacing: 6) {
-            Image(systemName: settings.currentLocation != nil ? "location.fill" : "location.slash")
-                .foregroundColor(settings.accentColor.color)
-            Text((settings.prayers != nil ? settings.currentLocation?.city : nil) ?? "No location")
-                .font(.subheadline)
-                .lineLimit(2)
-                .minimumScaleFactor(0.6)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var watchQiblaRow: some View {
+    /// Date, city and Qibla in one row: the date and place stacked on the left, the compass on the right. Tap
+    /// the compass to blow it up to the full width of the card, which is the only time it needs the room.
+    private var watchPlaceCard: some View {
         VStack(spacing: 6) {
-            QiblaView(size: showBigQibla ? 100 : 50)
-                .animation(.easeInOut, value: showBigQibla)
-                .onTapGesture {
-                    settings.hapticFeedback()
-                    withAnimation { showBigQibla.toggle() }
+            // When the compass is blown up it is the thing you are looking at, so the date and city step back
+            // to make room for it rather than competing with it.
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    if let hijriDate = settings.hijriDate {
+                        // Two lines before any shrink: a long Hijri date used to compress to 60% on one
+                        // line, which read as unreadably tiny on the small screens.
+                        Text(hijriDate.english)
+                            .font(showBigQibla ? .system(size: 9) : .caption2)
+                            .foregroundColor(settings.accentColor.accent1)
+                            .lineLimit(showBigQibla ? 1 : 2)
+                            .minimumScaleFactor(0.8)
+                    }
+
+                    HStack(spacing: 4) {
+                        Image(systemName: settings.currentLocation != nil ? "location.fill" : "location.slash")
+                            .font(showBigQibla ? .system(size: 9) : .caption2)
+                            .foregroundColor(settings.accentColor.accent1)
+
+                        Text((settings.prayers != nil ? settings.currentLocation?.city : nil) ?? "No location")
+                            .font(showBigQibla ? .system(size: 10) : .caption)
+                            .lineLimit(showBigQibla ? 1 : 2)
+                            .minimumScaleFactor(0.8)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if !showBigQibla {
+                    qiblaCompass(size: 44)
+                }
+            }
+
+            if showBigQibla {
+                qiblaCompass(size: 90)
+
+                // The exact spot the bearing was computed from - useful precisely when you are questioning
+                // whether the compass is pointing where it should.
+                if let location = settings.currentLocation,
+                   location.latitude != 1000, location.longitude != 1000 {
+                    Text(formatCoordinates(
+                        latitude: location.latitude,
+                        longitude: location.longitude
+                    ))
+                    .font(.system(size: 9))
+                    .monospacedDigit()
+                    .foregroundColor(settings.accentColor.accent1)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                 }
 
-            Text("Compass may not be accurate on Apple Watch")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity, alignment: .center)
+                Text("The compass may not be accurate on Apple Watch")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
         .frame(maxWidth: .infinity)
+        // The WHOLE card toggles the big compass - the gesture used to live only on the 44pt compass
+        // image, leaving the date/city column (most of the row) dead to taps.
+        .contentShape(Rectangle())
+        .onTapGesture {
+            settings.hapticFeedback()
+            withAnimation { showBigQibla.toggle() }
+        }
+        .animation(.easeInOut, value: showBigQibla)
+    }
+
+    private func qiblaCompass(size: CGFloat) -> some View {
+        QiblaView(size: size)
     }
     #endif
 
     private func prayerTimeRefresh(force: Bool) {
         settings.requestNotificationAuthorization {
             settings.fetchPrayerTimes(force: force) {
+                // The one place the confirmation is raised: after the refresh has actually settled, a beat
+                // later so the list isn't still animating. `nextAlertToPresent` reads the standing flags, and
+                // the dialog's buttons clear them - so it appears once, when you're looking at this screen.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    // Don't clobber a dialog the .onChange handlers already presented (travel/calc are
-                    // now consumed there). This only fills in the location/notification prompts.
                     if showAlert == nil { showAlert = nextAlertToPresent }
                 }
             }
@@ -380,7 +466,7 @@ struct AdhanView: View {
 }
 
 private struct DateAndLocationSection: View {
-    @EnvironmentObject private var settings: Settings
+    @ObservedObject private var settings = Settings.shared
 
     @Binding var showBigQibla: Bool
 
@@ -403,7 +489,7 @@ private struct DateAndLocationSection: View {
 }
 
 private struct HijriDateRow: View {
-    @EnvironmentObject private var settings: Settings
+    @ObservedObject private var settings = Settings.shared
 
     let hijriDate: HijriDate
 
@@ -451,7 +537,7 @@ private struct HijriDateRow: View {
 }
 
 private struct CurrentLocationRow: View {
-    @EnvironmentObject private var settings: Settings
+    @ObservedObject private var settings = Settings.shared
 
     let showBigQibla: Bool
     @State private var showingPrayerTimesMap = false
@@ -473,7 +559,7 @@ private struct CurrentLocationRow: View {
             .foregroundColor(.primary)
             .font(.subheadline)
             .contentShape(Rectangle())
-            
+
             #if os(watchOS)
             Text("Compass may not be accurate on Apple Watch")
                 .font(.caption2)
@@ -523,10 +609,25 @@ private struct CurrentLocationRow: View {
                             } label: {
                                 Label("Copy City Name", systemImage: "doc.on.doc")
                             }
+
+                            // The coordinates were only copyable from the pill that appears when the compass is
+                            // enlarged, which is a strange place to have to go looking for them.
+                            if let location = settings.currentLocation,
+                               location.latitude != 1000, location.longitude != 1000 {
+                                Button {
+                                    settings.hapticFeedback()
+                                    UIPasteboard.general.string = formatCoordinates(
+                                        latitude: location.latitude,
+                                        longitude: location.longitude
+                                    )
+                                } label: {
+                                    Label("Copy Coordinates", systemImage: "location.circle")
+                                }
+                            }
                         }
                 }
                 .padding(12)
-                // Clean capsule glass — no .cornerRadius() clip, which previously cut the capsule into a
+                // Clean capsule glass - no .cornerRadius() clip, which previously cut the capsule into a
                 // hard-edged box that looked wrong in Sepia.
                 .conditionalGlassEffect()
             }
@@ -559,7 +660,7 @@ private struct CurrentLocationRow: View {
     }
 
     /// The device's actual latitude/longitude, shown under the location (city) only while the big Qibla
-    /// compass is expanded — a precise readout of "where you actually are" beneath the resolved place name.
+    /// compass is expanded - a precise readout of "where you actually are" beneath the resolved place name.
     @ViewBuilder
     private var coordinatesLabel: some View {
         if showBigQibla,
@@ -570,7 +671,7 @@ private struct CurrentLocationRow: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(settings.accentColor.color)
 
-                Text(Self.formatCoordinates(latitude: loc.latitude, longitude: loc.longitude))
+                Text(formatCoordinates(latitude: loc.latitude, longitude: loc.longitude))
                     .font(.caption2)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
@@ -596,111 +697,24 @@ private struct CurrentLocationRow: View {
         }
     }
 
-    /// Formats a coordinate pair as e.g. "21.4225° N, 39.8262° E".
-    static func formatCoordinates(latitude: Double, longitude: Double) -> String {
-        let latDir = latitude >= 0 ? "N" : "S"
-        let lonDir = longitude >= 0 ? "E" : "W"
-        return String(format: "%.4f° %@, %.4f° %@", abs(latitude), latDir, abs(longitude), lonDir)
-    }
 }
 
-private struct LocationCalculationCard: View {
-    @EnvironmentObject private var settings: Settings
-
-    private let columns = [
-        GridItem(.flexible(), spacing: 10, alignment: .top),
-        GridItem(.flexible(), spacing: 10, alignment: .top)
-    ]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
-                ForEach(Array(summaryItems.enumerated()), id: \.offset) { _, item in
-                    SummaryTile(title: item.title, value: item.value)
-                }
-            }
-        }
-        .padding(.vertical, 2)
-    }
-
-    private var summaryItems: [(title: String, value: String)] {
-        var items: [(String, String)] = [
-            ("Current Location", currentLocationSummary),
-            ("Prayer Calculation", prayerCalculationSummary)
-        ]
-
-        if let home = settings.homeLocation {
-            items.append(("Home Location", home.city))
-            items.append(("Travel Distance", distanceFromHomeText ?? "Unavailable"))
-        }
-
-        return items
-    }
-
-    private var currentLocationSummary: String {
-        settings.currentLocation?.city ?? "Unavailable"
-    }
-
-    private var prayerCalculationSummary: String {
-        settings.hanafiMadhab ? "\(settings.prayerCalculation)\nHanafi Asr" : settings.prayerCalculation
-    }
-
-    private var distanceFromHomeText: String? {
-        guard
-            let current = settings.currentLocation,
-            let home = settings.homeLocation,
-            current.latitude != 1000,
-            current.longitude != 1000
-        else { return nil }
-
-        let here = CLLocation(latitude: current.latitude, longitude: current.longitude)
-        let there = CLLocation(latitude: home.latitude, longitude: home.longitude)
-        let meters = here.distance(from: there)
-        let miles = meters / 1609.34
-        let kilometers = meters / 1000
-
-        if miles >= 10 {
-            return String(format: "%.0f mi (%.0f km)", miles, kilometers)
-        }
-
-        return String(format: "%.1f mi (%.1f km)", miles, kilometers)
-    }
+/// Formats a coordinate pair as e.g. "21.4225° N, 39.8262° E".
+///
+/// Free function, not a static on `CurrentLocationRow`: that row is `private` and iOS-only, and the watch's
+/// enlarged-compass card needs this too.
+func formatCoordinates(latitude: Double, longitude: Double) -> String {
+    let latDir = latitude >= 0 ? "N" : "S"
+    let lonDir = longitude >= 0 ? "E" : "W"
+    return String(format: "%.4f° %@, %.4f° %@", abs(latitude), latDir, abs(longitude), lonDir)
 }
 
-private struct SummaryTile: View {
-    let title: String
-    let value: String
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title.uppercased())
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            if #available(iOS 16.0, *) {
-                Text(value)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2, reservesSpace: true)
-                    .multilineTextAlignment(.leading)
-            } else {
-                Text(value)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .conditionalGlassEffect(rectangle: true, useColor: 0.15)
-    }
-}
 
 #Preview {
     AlIslamPreviewContainer(embedInNavigation: false) {
         AdhanView()
     }
 }
+
+

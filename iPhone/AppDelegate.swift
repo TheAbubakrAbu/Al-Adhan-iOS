@@ -17,6 +17,31 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         registerBackgroundRefreshTask()
         scheduleAppRefresh()
         UNUserNotificationCenter.current().delegate = self
+
+        // The nag cascade's "Did you pray?" action. No .foreground option: answering from the lock
+        // screen marks the tracker and silences the remaining nags without ever opening the app.
+        let markPrayed = UNNotificationAction(
+            identifier: Settings.nagActionMarkPrayedIdentifier,
+            title: "Yes, I prayed it",
+            options: []
+        )
+        let nagCategory = UNNotificationCategory(
+            identifier: Settings.nagCategoryIdentifier,
+            actions: [markPrayed],
+            intentIdentifiers: [],
+            options: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([nagCategory])
+        // A time-zone change (landing after a flight, DST) invalidates every scheduled prayer trigger:
+        // the times must be recomputed and the whole schedule rebuilt for the new zone immediately, not
+        // whenever the next fetch happens to run - stale triggers are how a "Dhuhr/Asr" adhan sounds at
+        // night. The triggers are also zone-pinned (see `makePrayerNotificationRequest`), so even before
+        // this fires nothing drifts to a wrong wall-clock moment.
+        NotificationCenter.default.addObserver(
+            forName: .NSSystemTimeZoneDidChange, object: nil, queue: .main
+        ) { _ in
+            Settings.shared.fetchPrayerTimes(force: true)
+        }
         return true
     }
 
@@ -24,7 +49,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     func applicationDidEnterBackground(_ application: UIApplication) {
         scheduleAppRefresh()
     }
-
+    
     // Shows in-app notifications as banner + sound when a notification arrives in foreground, and keeps
     // them in Notification Center (.list) so a missed banner isn't lost.
     func userNotificationCenter(
@@ -32,7 +57,51 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        // An adhan (or any prayer alert) belongs to its MOMENT. The system can deliver scheduled local
+        // notifications late while the app is open (a suspended runloop, Mac/Catalyst, a slept device) -
+        // if this delivery is well past the instant it was scheduled for, keep it silently in the list
+        // instead of blaring a full adhan at some unrelated time of day.
+        if let intended = notification.request.content.userInfo[Settings.intendedFireDateUserInfoKey] as? TimeInterval,
+           Date().timeIntervalSince1970 - intended > 180 {
+            completionHandler([.list])
+            return
+        }
         completionHandler([.banner, .list, .sound])
+    }
+
+    // Handles nag-notification responses: the "Yes, I prayed it" action marks the tracker and cancels
+    // the rest of that cascade directly; a plain tap opens the app and raises the same question as an
+    // in-app dialog (see AdhanView).
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let content = response.notification.request.content
+        guard content.categoryIdentifier == Settings.nagCategoryIdentifier,
+              let cascadeName = content.userInfo[Settings.nagPrayerNameUserInfoKey] as? String else {
+            completionHandler()
+            return
+        }
+
+        let actionIdentifier = response.actionIdentifier
+        DispatchQueue.main.async {
+            let settings = Settings.shared
+            let asked = settings.naggedPrayerName(forCascade: cascadeName)
+            switch actionIdentifier {
+            case Settings.nagActionMarkPrayedIdentifier:
+                settings.markPrayerPrayedFromNag(asked: asked, cascadePrayerName: cascadeName)
+            case UNNotificationDefaultActionIdentifier:
+                // Already marked (from the tracker, or an earlier nag in the cascade) - asking "did you
+                // pray it?" again would be exactly the nagging the mark was supposed to end.
+                if !settings.isPrayerMarkedPrayed(asked, on: settings.trackerDate(forMarking: asked)) {
+                    settings.pendingNagQuestion = .init(prayerName: asked, cascadePrayerName: cascadeName)
+                }
+            default:
+                break
+            }
+            completionHandler()
+        }
     }
 
     // Registers the BGTask handler that refreshes prayer times in the background.
@@ -127,11 +196,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 /// can deliver scheduled local notifications late while the app is open (notably on Mac/Catalyst). To make
 /// the adhan reliable in that case, this arms a precise timer for the next at-time adhan and, when it fires
 /// with the app active, plays the selected adhan sound directly and removes the now-redundant scheduled
-/// notification so it can't sound again late. When the app isn't active this does nothing — the system
+/// notification so it can't sound again late. When the app isn't active this does nothing - the system
 /// notification handles it exactly as before.
 @MainActor
 final class ForegroundAdhanPlayer: NSObject, ObservableObject {
     static let shared = ForegroundAdhanPlayer()
+
+    /// The prayer whose adhan is playing right now, or `nil` when silent. Drives the on-screen stop control -
+    /// the full recording runs for minutes, so there has to be a way to cut it short.
+    @Published private(set) var playingPrayerName: String?
+
+    var isPlaying: Bool { playingPrayerName != nil }
 
     private var timer: DispatchSourceTimer?
     private var player: AVAudioPlayer?
@@ -159,9 +234,12 @@ final class ForegroundAdhanPlayer: NSObject, ObservableObject {
         guard interval > 0 else { return }
 
         let t = DispatchSource.makeTimerSource(queue: .main)
-        t.schedule(deadline: .now() + interval, leeway: .milliseconds(200))
+        // WALL deadline, not monotonic: `deadline:` stops counting while the device sleeps, so on a Mac
+        // (or an iPhone that napped) the timer fired LATE - a full adhan at some random later moment,
+        // labeled with whatever "prayer" happened to be current then (the "Last Third adhan" report).
+        t.schedule(wallDeadline: .now() + interval, leeway: .milliseconds(200))
         t.setEventHandler { [weak self] in
-            self?.fire(notificationID: next.notificationID)
+            self?.fire(target: next)
         }
         t.resume()
         timer = t
@@ -177,8 +255,16 @@ final class ForegroundAdhanPlayer: NSObject, ObservableObject {
         timer = nil
     }
 
-    private func fire(notificationID: String) {
+    private func fire(target: (date: Date, name: String, notificationID: String)) {
         timer = nil
+
+        // The adhan belongs to a MOMENT, not to whenever the timer managed to fire. If we're more than a
+        // couple of minutes past the prayer's time (a sleep/wake drift, a suspended runloop), playing the
+        // full recording now would be the "random adhan" - skip it and arm the next one instead.
+        guard abs(target.date.timeIntervalSinceNow) < 150 else {
+            reschedule()
+            return
+        }
 
         // Only the actual adhan sound files play in-app; if "Default" is selected there's no adhan audio to
         // play, so leave the system notification to handle the sound and just arm the next one. In-app
@@ -190,23 +276,42 @@ final class ForegroundAdhanPlayer: NSObject, ObservableObject {
             return
         }
 
-        guard notificationID != lastPlayedID else {
+        guard target.notificationID != lastPlayedID else {
             reschedule()
             return
         }
-        lastPlayedID = notificationID
+        lastPlayedID = target.notificationID
 
         // Drop the redundant scheduled notification so it can't double-sound late.
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [notificationID])
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [target.notificationID])
 
-        playAdhan(path: path)
+        // Named for the prayer the adhan was ARMED for - never `currentPrayer`, which can be a
+        // non-obligatory time (Last Third, Duhaa) by the moment the timer runs.
+        playAdhan(path: path, prayerName: target.name)
         reschedule()
     }
 
-    private func playAdhan(path: String) {
+    /// Fades out a playing adhan and restores whatever it interrupted. Safe to call when nothing is playing.
+    func stopAdhan() {
+        guard let player else { return }
+        player.setVolume(0, fadeDuration: 0.4)
+        // Hold the reference so `audioPlayerDidFinishPlaying` (which never fires for a manual stop) can't
+        // race this cleanup against a fresh adhan armed in the meantime.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+            guard let self, self.player === player else { return }
+            player.stop()
+            self.player = nil
+            self.finishPlayback()
+        }
+    }
+
+    private func playAdhan(path: String, prayerName: String?) {
+        // Pause in-app audio (Quran) so the adhan isn't talked over; resume it when the adhan finishes.
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default)
+            // .playback ignores the ringer switch; .ambient respects it. The override is an explicit
+            // opt-in ("play the adhan in the app even in Silent Mode"), off by default.
+            try session.setCategory(Settings.shared.adhanOverridesSilentMode ? .playback : .ambient, mode: .default)
             try session.setActive(true)
 
             let p = try AVAudioPlayer(contentsOf: URL(fileURLWithPath: path))
@@ -214,6 +319,7 @@ final class ForegroundAdhanPlayer: NSObject, ObservableObject {
             p.prepareToPlay()
             p.play()
             player = p
+            playingPrayerName = prayerName ?? "Adhan"
         } catch {
             logger.error("Foreground adhan playback failed: \(error.localizedDescription)")
             player = nil
@@ -222,9 +328,8 @@ final class ForegroundAdhanPlayer: NSObject, ObservableObject {
     }
 
     private func finishPlayback() {
-        if pausedQuranForAdhan {
-            pausedQuranForAdhan = false
-        } else {
+        playingPrayerName = nil
+        if pausedQuranForAdhan { } else {
             try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
         }
     }

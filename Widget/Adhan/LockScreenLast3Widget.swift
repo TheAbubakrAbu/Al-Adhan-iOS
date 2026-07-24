@@ -22,7 +22,7 @@ struct LockScreen4EntryView: View {
                             .font(.caption)
                             .frame(width: 10, alignment: .center)
                         
-                        Text(prayer.nameTransliteration)
+                        Text(prayer.displayName)
                             .fontWeight(.bold)
                             .lineLimit(1)
                             .minimumScaleFactor(0.5)
@@ -32,7 +32,7 @@ struct LockScreen4EntryView: View {
                         Text(prayer.time, style: .time)
                             .fontWeight(.bold)
                     }
-                    .foregroundColor((entry.currentPrayer?.nameTransliteration ?? "").contains(prayer.nameTransliteration) ? .primary : .secondary)
+                    .foregroundColor((entry.currentPrayer?.nameTransliteration ?? "") == prayer.nameTransliteration ? .primary : .secondary)
                 }
             }
         }

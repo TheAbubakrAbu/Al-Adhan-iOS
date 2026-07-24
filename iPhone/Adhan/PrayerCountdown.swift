@@ -1,7 +1,19 @@
 import SwiftUI
 
 struct PrayerCountdown: View {
-    @EnvironmentObject private var settings: Settings
+    /// Where the countdown is being drawn. `.section` is the standalone list card; `.embedded` is inside
+    /// `SkyView`'s gradient, which supplies its own heading and background.
+    enum Presentation {
+        /// The standalone list card, used when the sky is switched off.
+        case section
+        /// Only the progress bar and "Time Left" row, drawn inside `SkyView`, which paints the prayer columns
+        /// itself. `PrayerCountdown` still owns the adaptive refresh timer that drives `progress`.
+        case skyFooter
+    }
+
+    var presentation: Presentation = .section
+
+    @ObservedObject private var settings = Settings.shared
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var progress: Double = 0
@@ -50,15 +62,41 @@ struct PrayerCountdown: View {
             }
     }
 
+    @ViewBuilder
     private func countdownSection(current: Prayer, next: Prayer) -> some View {
-        Section(header: sectionHeader) {
-            countdownBody(current: current, next: next)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    settings.hapticFeedback()
-                    withAnimation { settings.showPrayerInfo.toggle() }
-                }
+        switch presentation {
+        case .section:
+            #if os(watchOS)
+            Section(header: Text("UP NEXT")) {
+                watchBody(current: current, next: next)
+            }
+            #else
+            Section(header: sectionHeader) {
+                tappableBody(current: current, next: next)
+            }
+            #endif
+        case .skyFooter:
+            // No `Section` - the sky card already is one, and a nested section inside a list row breaks it.
+            VStack(spacing: 2) {
+                countdownProgress(next: next)
+                timeLeftRow(next: next)
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.25)
+            // Stated outright rather than left to `.primary`. The sky card forces a dark color scheme, but a
+            // `Text(_, style: .timer)` takes its color from the UIKit trait collection instead, so under a
+            // light system appearance the countdown rendered black on the dark card.
+            .foregroundColor(.white)
         }
+    }
+
+    private func tappableBody(current: Prayer, next: Prayer) -> some View {
+        countdownBody(current: current, next: next)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                settings.hapticFeedback()
+                withAnimation { settings.showPrayerInfo.toggle() }
+            }
     }
 
     private func countdownBody(current: Prayer, next: Prayer) -> some View {
@@ -69,20 +107,72 @@ struct PrayerCountdown: View {
         }
         .lineLimit(1)
         .minimumScaleFactor(0.25)
+        // Tightened: the card was carrying a lot of empty vertical space.
         .padding(.vertical, {
-        if #available(iOS 26, *) { 0 } else { 8 }
+            if #available(iOS 26, *) { return 0 } else { return 4 }
         }())
     }
 
     private var sectionHeader: some View {
         HStack {
             Text("CURRENT")
-            
+
             Spacer()
-            
+
             Text("UPCOMING")
         }
     }
+
+    #if os(watchOS)
+    /// The watch gets its own shape. The phone's two-column "CURRENT | UPCOMING" card, with a full time under
+    /// each side, is far too much text for a 40mm screen - you end up reading it rather than glancing at it.
+    /// Here the time remaining is the biggest thing on the card, the next prayer names itself right above, and
+    /// the prayer you're currently in is demoted to one quiet line underneath.
+    private func watchBody(current: Prayer, next: Prayer) -> some View {
+        VStack(spacing: 3) {
+            HStack(spacing: 4) {
+                Image(systemName: next.image)
+                    .font(.caption2)
+
+                Text(countdownDisplayName(for: next))
+                    .font(.caption.weight(.semibold))
+
+                Spacer(minLength: 2)
+
+                Text(next.time, style: .time)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .foregroundColor(next.nameTransliteration == "Shurooq" ? .primary : settings.accentColor.accent2)
+
+            Text(next.time, style: .timer)
+                .font(.title2.monospacedDigit().weight(.bold))
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            countdownProgress(next: next)
+
+            HStack(spacing: 4) {
+                Text("Now")
+                    .foregroundStyle(.tertiary)
+
+                Text(countdownDisplayName(for: current))
+                    .foregroundColor(current.nameTransliteration == "Shurooq" ? .primary : settings.accentColor.accent1)
+
+                Spacer(minLength: 2)
+
+                Text(current.time, style: .time)
+                    .foregroundStyle(.secondary)
+            }
+            .font(.caption2)
+
+            // A one-line sky: where the sun is between sunrise and sunset, and tonight's moon. The iPhone's
+            // full SkyView has no business on a wrist, but these two facts survive the shrink.
+            WatchSkyStrip()
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.5)
+    }
+    #endif
 
     @ViewBuilder
     private func prayerSummary(current: Prayer, next: Prayer) -> some View {
@@ -122,20 +212,43 @@ struct PrayerCountdown: View {
         }
     }
 
+    @ViewBuilder
     private func countdownProgress(next: Prayer) -> some View {
-        ProgressView(value: progress)
-            .tint(settings.accentColor.color)
-            .conditionalGlassEffect()
-            .padding(.vertical, 2)
-            #if os(watchOS)
-            .padding(.top, 4)
-            #endif
+        Group {
+            // A solid accent keeps the stock `ProgressView` - identical to what shipped. Only a real
+            // two-color accent swaps in the custom bar, which is the only way to fill with a gradient.
+            if settings.accentColor.isGradient {
+                AccentGradientBar(progress: progress)
+            } else {
+                ProgressView(value: progress)
+                    .tint(settings.accentColor.color)
+            }
+        }
+        .conditionalGlassEffect()
+        .padding(.vertical, 2)
+        #if os(watchOS)
+        .padding(.top, 4)
+        #endif
     }
 
+    /// Was a plain "Time Left: 00:12:34" headline - visually a relic next to the rest of the card. Now it
+    /// reads as a compact meter caption: a muted label on the left, the live timer in the accent on the right.
     private func timeLeftRow(next: Prayer) -> some View {
-        Text("Time Left: \(next.time, style: .timer)")
-            .font(.headline)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(spacing: 6) {
+            Image(systemName: "hourglass")
+                .font(.caption2)
+
+            Text("Time left")
+                .font(.caption)
+
+            Spacer(minLength: 4)
+
+            Text(next.time, style: .timer)
+                .font(.caption.monospacedDigit().weight(.semibold))
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 2)
     }
 
     private func handleScenePhaseChange(_ phase: ScenePhase) {
@@ -149,6 +262,10 @@ struct PrayerCountdown: View {
 
     private func refreshProgressAndPrayerState() {
         settings.updateCurrentAndNextPrayer()
+        // Cheap and self-guarded (early-returns unless the hijri day actually changed): keeps the
+        // displayed hijri date correct across Maghrib (when "switch at Maghrib" is on) and across
+        // midnight while the app stays foregrounded, without waiting for the next fetch.
+        settings.updateDates()
         updateProgress()
     }
 
@@ -211,8 +328,19 @@ struct PrayerCountdown: View {
     }
 }
 
+extension PrayerCountdown: Equatable {
+    /// Everything this view draws comes from observed `Settings` state or its own timer-driven
+    /// `progress` - both of which invalidate the view directly, bypassing this comparison. A
+    /// parent-driven re-evaluation therefore never carries new information, and `presentation` is
+    /// the only stored input. Gating on it matters for `.skyFooter`: `SkyView` re-runs its body
+    /// every second to move the sun and would otherwise drag the whole countdown subtree with it.
+    static func == (lhs: PrayerCountdown, rhs: PrayerCountdown) -> Bool {
+        lhs.presentation == rhs.presentation
+    }
+}
+
 private struct CurrentPrayerCell: View {
-    @EnvironmentObject private var settings: Settings
+    @ObservedObject private var settings = Settings.shared
 
     let prayer: Prayer
 
@@ -253,7 +381,7 @@ private struct CurrentPrayerCell: View {
 }
 
 private struct UpcomingPrayerCell: View {
-    @EnvironmentObject private var settings: Settings
+    @ObservedObject private var settings = Settings.shared
 
     let prayer: Prayer
 
@@ -295,11 +423,11 @@ private struct UpcomingPrayerCell: View {
 }
 
 private func countdownDisplayName(for prayer: Prayer) -> String {
-    prayer.nameTransliteration == "Islamic Midnight" ? "Midnight" : prayer.nameTransliteration
+    prayer.nameTransliteration == "Islamic Midnight" ? "Midnight" : prayer.displayName
 }
 
 private struct PrayerTitleStyle: ViewModifier {
-    @EnvironmentObject private var settings: Settings
+    @ObservedObject private var settings = Settings.shared
 
     let prayer: Prayer
 
@@ -315,7 +443,7 @@ private struct PrayerTitleStyle: ViewModifier {
 }
 
 private struct PrayerSubtitleView: View {
-    @EnvironmentObject private var settings: Settings
+    @ObservedObject private var settings = Settings.shared
 
     let prayer: Prayer
     let alignment: TextAlignment
@@ -480,5 +608,30 @@ private struct PrayerSunnahInfoView: View {
             PrayerCountdown()
         }
         .applyConditionalListStyle(disableNowPlayingInset: true)
+    }
+}
+
+/// A linear progress bar filled with the accent gradient. `ProgressView` only accepts a flat `tint`, so a
+/// two-color accent needs its own bar. Matches the stock bar's 4pt height and capsule ends.
+struct AccentGradientBar: View {
+    @ObservedObject private var settings = Settings.shared
+
+    /// 0…1. Clamped, because a stale progress value crossing a prayer boundary can briefly fall outside it.
+    var progress: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            let fraction = min(max(progress, 0), 1)
+
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.primary.opacity(0.18))
+
+                Capsule()
+                    .fill(settings.accentColor.gradient(from: .leading, to: .trailing))
+                    .frame(width: geo.size.width * fraction)
+            }
+        }
+        .frame(height: 4)
     }
 }

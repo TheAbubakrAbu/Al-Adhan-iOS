@@ -1,15 +1,16 @@
 import SwiftUI
+import Adhan
 import UserNotifications
 #if os(iOS)
 import AVFoundation
 #endif
 
 struct SettingsAdhanView: View {
-    @EnvironmentObject var settings: Settings
+    @ObservedObject var settings = Settings.shared
     @Environment(\.dismiss) private var dismiss
-    
+
     @State private var showingMap = false
-    
+
     @State private var showAlert: AlertType?
     enum AlertType: Identifiable {
         case travelTurnOnAutomatic, travelTurnOffAutomatic, calculationAutomaticChanged
@@ -22,13 +23,17 @@ struct SettingsAdhanView: View {
             }
         }
     }
-    
+
     @State var showNotifications: Bool
     private let presentedAsSheet: Bool
+    /// Lands straight on the Traveling Mode screen - for the prayer list's Qasr footer, whose whole point is
+    /// "take me to where I can turn this off".
+    @State private var openTravelingMode: Bool
 
-    init(showNotifications: Bool, presentedAsSheet: Bool = false) {
+    init(showNotifications: Bool, presentedAsSheet: Bool = false, openTravelingMode: Bool = false) {
         self._showNotifications = State(initialValue: showNotifications)
         self.presentedAsSheet = presentedAsSheet
+        self._openTravelingMode = State(initialValue: openTravelingMode)
     }
 
     private var dialogTitle: String {
@@ -43,7 +48,7 @@ struct SettingsAdhanView: View {
             return ""
         }
     }
-    
+
     var body: some View {
         List {
             Group {
@@ -57,6 +62,18 @@ struct SettingsAdhanView: View {
                     adhanSettingsLink(title: "Traveling Mode", systemImage: "airplane") {
                         travelingModeDestination
                     }
+                    // The programmatic entrance to the same screen (see `openTravelingMode`). A hidden
+                    // isActive link rather than a nav-path push because this view still supports the
+                    // pre-NavigationStack containers it is presented in. iOS-only: the watch never
+                    // opens this programmatically, and `isActive:` is deprecated on watchOS 9+.
+                    #if os(iOS)
+                    .background(
+                        NavigationLink(isActive: $openTravelingMode) {
+                            travelingModeDestination
+                        } label: { EmptyView() }
+                        .hidden()
+                    )
+                    #endif
                 }
                 Section {
                     adhanSettingsLink(title: "Optional Prayers", systemImage: "moon.stars") {
@@ -68,6 +85,34 @@ struct SettingsAdhanView: View {
                         prayerOffsetsDestination
                     }
                 }
+                Section {
+                    adhanSettingsLink(title: "Custom Prayer Names", systemImage: "character.cursor.ibeam") {
+                        customPrayerNamesDestination
+                    }
+                }
+                
+                #if os(iOS)
+                Section {
+                    VStack(alignment: .leading) {
+                        Toggle("Show Sky", isOn: $settings.showSkyView.animation(.easeInOut))
+                            .font(.subheadline)
+                            .tint(settings.accentColor.color)
+                            .onChange(of: settings.showSkyView) { _ in settings.hapticFeedback() }
+
+                        Text("The sun on today's arc, the moon at its true phase, and the stars at night. Drag the sun to see any moment of the day. Turn it off for a plain Current/Upcoming card.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 2)
+                    }
+
+                    // Nothing to color when the sky isn't drawn.
+                    if settings.showSkyView {
+                        adhanSettingsLink(title: "Sky Colors", systemImage: "paintpalette") {
+                            SkyColorsView()
+                        }
+                    }
+                }
+                #endif
             }
             .themedListRowBackground()
         }
@@ -90,103 +135,126 @@ struct SettingsAdhanView: View {
             }
         }
         #endif
+        // The confirmation is raised only in response to something the USER just did here - changing the home
+        // location, or switching one of the automatic modes on - and only once the resulting refresh has
+        // settled. It is deliberately NOT driven by an `.onChange` on the travel/calculation flags themselves:
+        // watching those means the dialog fires the moment a background location update flips one, over and
+        // over, whether or not this screen is on screen. The dialog's buttons clear the flags.
         .onChange(of: settings.homeLocation) { _ in
-            settings.fetchPrayerTimes()
+            settings.fetchPrayerTimes {
+                presentAutoChangeDialogIfPending()
+            }
         }
         .onChange(of: settings.travelAutomatic) { newValue in
             guard newValue else { return }
-            settings.fetchPrayerTimes() {
+            settings.fetchPrayerTimes {
                 if settings.homeLocation == nil {
-                    withAnimation { settings.travelingMode = false }
+                    settings.setTravelingModeManually(false)
+                } else {
+                    presentAutoChangeDialogIfPending()
                 }
             }
         }
         .onChange(of: settings.calculationAutomatic) { newValue in
             guard newValue else { return }
-            settings.fetchPrayerTimes(force: true)
-        }
-        // Present the automatic-change confirmation the moment the flag flips, from ANY code path that runs
-        // checkIfTraveling()/the auto-calculation change (location updates, scene changes, background
-        // refresh) — not gated behind a specific prayer-fetch completion. The old approach only checked the
-        // flag inside a couple of fetch completions, so the dialog lagged (waited for the fetch) and often
-        // never appeared (when the flag flipped from a fetch not triggered here).
-        // Consume each flag the instant it flips (see AdhanView for the full rationale): capture it into
-        // `showAlert` and reset the @AppStorage flag so the dialog can't re-present on re-entry or after a
-        // tap-outside dismissal.
-        .onChange(of: settings.travelTurnOnAutomatic) { on in
-            if on {
-                showAlert = .travelTurnOnAutomatic
-                settings.travelTurnOnAutomatic = false
+            settings.fetchPrayerTimes(force: true) {
+                presentAutoChangeDialogIfPending()
             }
         }
-        .onChange(of: settings.travelTurnOffAutomatic) { off in
-            if off {
-                showAlert = .travelTurnOffAutomatic
-                settings.travelTurnOffAutomatic = false
-            }
-        }
-        .onChange(of: settings.calculationAutoChanged) { changed in
-            if changed {
-                showAlert = .calculationAutomaticChanged
-                settings.calculationAutoChanged = false
-            }
+        .onChange(of: settings.prayerCalculation) { _ in
+            guard settings.calculationAutoChanged else { return }
+            presentAutoChangeDialogIfPending()
         }
         // NOTE: Confirmation-dialog buttons intentionally avoid `role: .cancel`. On iOS 26+ a `.cancel`
         // button is hidden from the action sheet (the system expects you to cancel by tapping outside / the
         // dim background instead), so a meaningful "Confirm: Keep On"-style choice would silently disappear.
         // Plain buttons always render; tapping outside still cancels. Applies to all confirmation dialogs.
-        .confirmationDialog(dialogTitle, isPresented: Binding(
+        .confirmationDialog(dialogTitle, isPresented: autoChangeDialogBinding, titleVisibility: .visible) {
+            autoChangeDialogButtons
+        } message: {
+            autoChangeDialogMessage
+        }
+    }
+
+    /// A dialog anchored only to the root list cannot present while the user is on a *pushed* sub-screen -
+    /// which is exactly why the Traveling Mode confirmation never appeared (the toggle lives on the pushed
+    /// "Traveling Mode" screen). The binding and content are shared so the same dialog can also be attached
+    /// to the sub-screens, and whichever one is actually on screen presents it.
+    private var autoChangeDialogBinding: Binding<Bool> {
+        Binding(
             get: { showAlert != nil },
             set: { if !$0 { showAlert = nil } }
-        ), titleVisibility: .visible) {
-            switch showAlert {
-            case .travelTurnOnAutomatic:
-                Button("Override: Turn Off", role: .destructive) {
-                    settings.hapticFeedback()
-                    settings.overrideTravelingMode(keepOn: false)
-                }
+        )
+    }
 
-                Button("Confirm: Keep On") {
-                    settings.hapticFeedback()
-                    settings.confirmTravelAutomaticChange()
-                }
-
-            case .travelTurnOffAutomatic:
-                Button("Override: Keep On", role: .destructive) {
-                    settings.hapticFeedback()
-                    settings.overrideTravelingMode(keepOn: true)
-                }
-
-                Button("Confirm: Turn Off") {
-                    settings.hapticFeedback()
-                    settings.confirmTravelAutomaticChange()
-                }
-
-            case .calculationAutomaticChanged:
-                Button("Override: Keep \(settings.calculationAutoPreviousMethod)", role: .destructive) {
-                    settings.hapticFeedback()
-                    settings.overrideAutomaticCalculationKeepingPrevious()
-                }
-
-                Button("Confirm: Use \(settings.calculationAutoDetectedMethod)") {
-                    settings.hapticFeedback()
-                    settings.confirmAutomaticCalculationChange()
-                }
-                
-            case .none:
-                EmptyView()
+    /// Raise the auto-change confirmation if one is pending. Deferred a beat, so the dialog doesn't try to
+    /// present while the toggle that triggered it is still animating - presenting into a mid-flight layout is
+    /// how a confirmation ends up silently dropped.
+    private func presentAutoChangeDialogIfPending() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            guard showAlert == nil else { return }
+            if settings.travelTurnOnAutomatic {
+                showAlert = .travelTurnOnAutomatic
+            } else if settings.travelTurnOffAutomatic {
+                showAlert = .travelTurnOffAutomatic
+            } else if settings.calculationAutoChanged {
+                showAlert = .calculationAutomaticChanged
             }
-        } message: {
-            switch showAlert {
-            case .travelTurnOnAutomatic:
-                Text(settings.automaticTravelMessage(turnOn: true))
-            case .travelTurnOffAutomatic:
-                Text(settings.automaticTravelMessage(turnOn: false))
-            case .calculationAutomaticChanged:
-                Text(settings.automaticCalculationMessage)
-            case .none:
-                EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var autoChangeDialogButtons: some View {
+        switch showAlert {
+        case .travelTurnOnAutomatic:
+            Button("Override: Turn Off", role: .destructive) {
+                settings.hapticFeedback()
+                settings.overrideTravelingMode(keepOn: false)
             }
+
+            Button("Confirm: Keep On") {
+                settings.hapticFeedback()
+                settings.confirmTravelAutomaticChange()
+            }
+
+        case .travelTurnOffAutomatic:
+            Button("Override: Keep On", role: .destructive) {
+                settings.hapticFeedback()
+                settings.overrideTravelingMode(keepOn: true)
+            }
+
+            Button("Confirm: Turn Off") {
+                settings.hapticFeedback()
+                settings.confirmTravelAutomaticChange()
+            }
+
+        case .calculationAutomaticChanged:
+            Button("Override: Keep \(settings.calculationAutoPreviousMethod)", role: .destructive) {
+                settings.hapticFeedback()
+                settings.overrideAutomaticCalculationKeepingPrevious()
+            }
+
+            Button("Confirm: Use \(settings.calculationAutoDetectedMethod)") {
+                settings.hapticFeedback()
+                settings.confirmAutomaticCalculationChange()
+            }
+
+        case .none:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var autoChangeDialogMessage: some View {
+        switch showAlert {
+        case .travelTurnOnAutomatic:
+            Text(settings.automaticTravelMessage(turnOn: true))
+        case .travelTurnOffAutomatic:
+            Text(settings.automaticTravelMessage(turnOn: false))
+        case .calculationAutomaticChanged:
+            Text(settings.automaticCalculationMessage)
+        case .none:
+            EmptyView()
         }
     }
 
@@ -220,15 +288,26 @@ struct SettingsAdhanView: View {
         .navigationTitle(title)
     }
 
+    // The confirmation is attached to these pushed screens as well as the root list. The toggles that trigger
+    // it live *here*, and a dialog anchored only to the (now off-screen) root list could never present -
+    // which is why the Traveling Mode confirmation appeared to do nothing.
     private var prayerCalculationDestination: some View {
-        adhanSettingsSubList(title: "Prayer Calculation") {
-            prayerCalculationSection
-        }
+        PrayerCalculationListView()
+            .confirmationDialog(dialogTitle, isPresented: autoChangeDialogBinding, titleVisibility: .visible) {
+                autoChangeDialogButtons
+            } message: {
+                autoChangeDialogMessage
+            }
     }
 
     private var travelingModeDestination: some View {
         adhanSettingsSubList(title: "Traveling Mode") {
             travelingModeSection
+        }
+        .confirmationDialog(dialogTitle, isPresented: autoChangeDialogBinding, titleVisibility: .visible) {
+            autoChangeDialogButtons
+        } message: {
+            autoChangeDialogMessage
         }
     }
 
@@ -241,6 +320,12 @@ struct SettingsAdhanView: View {
     private var prayerOffsetsDestination: some View {
         adhanSettingsSubList(title: "Manual Offsets") {
             prayerOffsetsSection
+        }
+    }
+
+    private var customPrayerNamesDestination: some View {
+        adhanSettingsSubList(title: "Custom Prayer Names") {
+            CustomPrayerNamesSection()
         }
     }
 
@@ -295,6 +380,7 @@ struct SettingsAdhanView: View {
                     Text(subtitle)
                         .font(.caption)
                         .foregroundColor(.secondary)
+                        .padding(.vertical, 2)
                 }
             }
         }
@@ -303,71 +389,9 @@ struct SettingsAdhanView: View {
         .onChange(of: isOn.wrappedValue) { _ in settings.hapticFeedback() }
     }
 
-    private var prayerCalculationSection: some View {
-        Section(header: Text("PRAYER CALCULATION")) {
-            automaticCalculationToggle
-            calculationPickerGroup
-            hanafiCalculationGroup
-        }
-    }
-
-    private var automaticCalculationToggle: some View {
-        Toggle("Automatic Prayer Calculation", isOn: $settings.calculationAutomatic.animation(.easeInOut))
-            .font(.subheadline)
-            .tint(settings.accentColor.color)
-            .onChange(of: settings.calculationAutomatic) { _ in settings.hapticFeedback() }
-    }
-
-    private var calculationPickerGroup: some View {
-        VStack(alignment: .leading) {
-            Picker("Calculation", selection: calculationSelection.animation(.easeInOut)) {
-                Section {
-                    ForEach(calculationOptions, id: \.self) { option in
-                        Text(option).tag(option)
-                            .font(.subheadline)
-                    }
-                } header: {
-                    Text("Calculation")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .font(.subheadline)
-            .disabled(settings.calculationAutomatic)
-            .onChange(of: settings.prayerCalculation) { _ in settings.hapticFeedback() }
-
-            Text("Fajr and Isha timings vary by calculation method, as they are based on twilight. If automatic mode is on, \(AppIdentifiers.appName) picks a method based on your location (for example, North America or Turkey). If your country is not mapped, it defaults to Muslim World League.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .padding(.vertical, 2)
-        }
-    }
-
-    private var calculationSelection: Binding<String> {
-        Binding(
-            get: { settings.prayerCalculation },
-            set: { newValue in
-                settings.calculationManuallyToggled = true
-                if settings.calculationAutomatic {
-                    settings.calculationAutomatic = false
-                }
-                settings.prayerCalculation = newValue
-            }
-        )
-    }
-
-    private var hanafiCalculationGroup: some View {
-        VStack(alignment: .leading) {
-            Toggle("Hanafi Calculation for Asr", isOn: $settings.hanafiMadhab.animation(.easeInOut))
-                .font(.subheadline)
-                .tint(settings.accentColor.color)
-                .onChange(of: settings.hanafiMadhab) { _ in settings.hapticFeedback() }
-
-            Text("The Hanafi madhab uses the shadow ratio of 2 to 1 for Asr, while many other schools use 1 to 1. Enable this only if you follow the Hanafi method.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .padding(.vertical, 2)
-        }
-    }
+    // The madhab + high-latitude controls moved INTO PrayerCalculationListView (they are calculation
+    // choices; inline on this root they read as a stray orphan section). Kept nowhere else - the
+    // settings-search index deep-links both to that screen.
 
     private var travelingModeSection: some View {
         Section(header: Text("TRAVELING MODE")) {
@@ -392,6 +416,7 @@ struct SettingsAdhanView: View {
                     Image(systemName: "house.fill")
                         .font(.caption)
                         .foregroundColor(settings.accentColor.color)
+                        .padding(.vertical, 2)
 
                     Text(city)
                         .font(.subheadline)
@@ -449,18 +474,44 @@ struct SettingsAdhanView: View {
         Binding(
             get: { settings.travelingMode },
             set: {
-                settings.travelingModeManuallyToggled = true
-                settings.travelingMode = $0
+                settings.setTravelingModeManually($0)
             }
         )
     }
 
+    // Not iOS-only. The whole body used to sit inside `#if os(iOS)`, but the "Manual Offsets" link that pushes
+    // it (see `adhanSettingsLink` above) was never guarded - so on the watch the link pushed a List with a
+    // title and zero rows. Both the Hijri stepper and `PrayerOffsetsView` are plain Steppers that work fine on
+    // watchOS, so the fix is to actually show them rather than to hide the link.
     @ViewBuilder
     private var prayerOffsetsSection: some View {
-        #if os(iOS)
         // The Hijri day offset used to live in its own top-level "Manual Offsets" screen; it now sits here
         // alongside the prayer-time offsets so every manual adjustment is in one place.
         Section(header: Text("HIJRI OFFSET")) {
+            #if os(watchOS)
+            // Watch: one short line ("+2 days") in small type - the phone's "Hijri Offset: X days" row
+            // truncated to a couple of letters on the small screen.
+            Stepper(value: $settings.hijriOffset, in: -3...3) {
+                Text("\(settings.hijriOffset >= 0 ? "+" : "")\(settings.hijriOffset) \(abs(settings.hijriOffset) == 1 ? "day" : "days")")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundColor(settings.accentColor.color)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .font(.footnote)
+
+            if let hijriDate = settings.hijriDate {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(hijriDate.english)
+                    Text(hijriDate.arabic)
+                }
+                .font(.caption2)
+                .foregroundColor(settings.accentColor.color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .padding(.vertical, 2)
+            }
+            #else
             Stepper(value: $settings.hijriOffset, in: -3...3) {
                 HStack {
                     Text("Hijri Offset:")
@@ -491,13 +542,13 @@ struct SettingsAdhanView: View {
                 }
                 .font(.subheadline)
             }
+            #endif
         }
         .onAppear {
             settings.fetchPrayerTimes()
         }
 
         PrayerOffsetsView()
-        #endif
     }
 
     private var isWatch: Bool {
@@ -509,30 +560,32 @@ struct SettingsAdhanView: View {
     }
 }
 
-let calculationOptions: [String] = {
-    let preferred = "Muslim World League"
-    let rest = [
-        "Britain (Moonsighting Committee)",
-        "Saudi Arabia (Umm Al-Qura)",
-        "Egypt",
-        "Dubai",
-        "Kuwait",
-        "Qatar",
-        "Turkey",
-        "Tehran",
-        "Karachi",
-        "Singapore",
-        "North America"
-    ].sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-    return [preferred] + rest
-}()
 
 struct PrayerOffsetsView: View {
-    @EnvironmentObject var settings: Settings
+    @ObservedObject var settings = Settings.shared
 
     @ViewBuilder
     private func offsetStepper(title: String, icon: String, value: Binding<Int>) -> some View {
-        Stepper(value: value.animation(.easeInOut), in: -10...10) {
+        // Wide enough to follow a local mosque that runs well off the calculated time, not just to nudge it.
+        #if os(watchOS)
+        // Watch: prayer name over the minutes, small type - the phone's single wide row truncated badly.
+        Stepper(value: value.animation(.easeInOut), in: -190...190) {
+            VStack(alignment: .leading, spacing: 1) {
+                Label(title, systemImage: icon)
+                    .font(.caption2)
+                    .foregroundColor(.primary)
+                    .padding(.vertical, 2)
+
+                Text("\(value.wrappedValue) min")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundColor(settings.accentColor.color)
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+        }
+        .font(.footnote)
+        #else
+        Stepper(value: value.animation(.easeInOut), in: -190...190) {
             HStack {
                 Image(systemName: icon)
                     .foregroundColor(settings.accentColor.color)
@@ -550,6 +603,7 @@ struct PrayerOffsetsView: View {
             .foregroundColor(settings.accentColor.color)
         }
         .font(.subheadline)
+        #endif
     }
 
     private func travelOffsetCaption(for prayerName: String) -> String? {
@@ -562,7 +616,7 @@ struct PrayerOffsetsView: View {
             return nil
         }
     }
-    
+
     var body: some View {
         Section(header: Text("HIJRI DATE")) {
             VStack(alignment: .leading, spacing: 6) {
@@ -575,14 +629,14 @@ struct PrayerOffsetsView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.vertical, 2)
-                
+
                 Text("In Islam, the day begins at sunset (Maghrib). Keeping this on follows that Islamic tradition, while turning it off matches the usual midnight-to-midnight day.")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.vertical, 2)
             }
         }
-        
+
         Section(header: Text("PRAYER OFFSETS")) {
             offsetStepper(title: "Fajr", icon: "sunrise", value: $settings.offsetFajr)
             offsetStepper(title: "Sunrise", icon: "sunrise.fill", value: $settings.offsetSunrise)
@@ -595,7 +649,7 @@ struct PrayerOffsetsView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .padding(.vertical, 2)
-            
+
             Text("Use these offsets to shift the calculated prayer times earlier or later. Negative values move the time earlier, positive values move it later.")
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -605,10 +659,10 @@ struct PrayerOffsetsView: View {
 }
 
 struct NotificationView: View {
-    @EnvironmentObject var settings: Settings
-    
+    @ObservedObject var settings = Settings.shared
+
     @Environment(\.scenePhase) private var scenePhase
-    
+
     @State private var showAlert: Bool = false
     @State private var notifSettings: UNNotificationSettings?
     @State private var requestAccessAlertMessage: String?
@@ -620,7 +674,7 @@ struct NotificationView: View {
     private var notificationSoundsDisabled: Bool {
         notifSettings?.soundSetting == .disabled
     }
-    
+
     var body: some View {
         List {
             Group {
@@ -669,6 +723,7 @@ struct NotificationView: View {
                         Label("Notification sounds are off in iPhone Settings, so the adhan will be silent.", systemImage: "speaker.slash.fill")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                            .padding(.vertical, 2)
                     }
 
                     if settings.adhanNotificationSound != "default" {
@@ -687,9 +742,16 @@ struct NotificationView: View {
                             }
                     }
 
-                    Text("The notification plays the adhan's first 30 seconds — iOS won't play a longer notification sound. Previewing, or having the app open when the prayer comes in, plays it in full. Prenotifications and nagging reminders still use the default sound.")
+                    Text("The notification plays the adhan's first 30 seconds - iOS won't play a longer notification sound. Previewing, or having the app open when the prayer comes in, plays it in full. Prenotifications and nagging reminders still use the default sound.")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                        .padding(.vertical, 2)
+                }
+
+                Section(footer: Text("With this on, the adhan that plays inside the app at prayer time sounds even when the ringer switch is set to silent. Notifications outside the app still follow your system sound settings.")) {
+                    Toggle("Play In-App Adhan in Silent Mode", isOn: $settings.adhanOverridesSilentMode.animation(.easeInOut))
+                        .font(.subheadline)
+                        .onChange(of: settings.adhanOverridesSilentMode) { _ in settings.hapticFeedback() }
                 }
                 #endif
 
@@ -740,7 +802,7 @@ struct NotificationView: View {
         .applyConditionalListStyle()
         .navigationTitle("Notification Settings")
     }
-    
+
     #if os(iOS)
     private var permissionCard: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -802,11 +864,11 @@ struct NotificationView: View {
         .animation(.easeInOut(duration: 0.25), value: notifSettings?.authorizationStatus.rawValue)
     }
     #endif
-    
+
     private var permissionPillText: String {
         statusText(notifSettings?.authorizationStatus ?? .notDetermined)
     }
-    
+
     private var permissionPillColor: Color {
         guard let status = notifSettings?.authorizationStatus else { return .secondary }
         switch status {
@@ -820,19 +882,19 @@ struct NotificationView: View {
             return .secondary
         }
     }
-    
+
     private func infoRow(_ left: String, _ right: String) -> some View {
         HStack {
             Text(left)
                 .foregroundColor(.secondary)
-            
+
             Spacer()
-            
+
             Text(right)
                 .foregroundColor(.primary)
         }
     }
-    
+
     private func statusText(_ s: UNAuthorizationStatus) -> String {
         switch s {
         case .notDetermined: return "Not asked"
@@ -843,7 +905,7 @@ struct NotificationView: View {
         @unknown default: return "Unknown"
         }
     }
-    
+
     private func notificationSettingText(_ s: UNNotificationSetting) -> String {
         switch s {
         case .enabled: return "On"
@@ -852,11 +914,11 @@ struct NotificationView: View {
         @unknown default: return "Unknown"
         }
     }
-    
+
     private func smallButton(_ title: String, systemImage: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: systemImage)
-            
+
             Text(title)
                 .font(.footnote.weight(.semibold))
                 .lineLimit(1)
@@ -873,7 +935,7 @@ struct NotificationView: View {
                 .stroke(settings.accentColor.color.opacity(0.35), lineWidth: 1)
         )
     }
-    
+
     private func openSystemSettings() {
         #if os(iOS)
         if let url = URL(string: UIApplication.openSettingsURLString) {
@@ -881,13 +943,13 @@ struct NotificationView: View {
         }
         #endif
     }
-    
+
     @MainActor
     private func refresh() async {
         let center = UNUserNotificationCenter.current()
         notifSettings = await center.notificationSettings()
     }
-    
+
     private func requestAuthorizationAndFetchPrayerTimes() {
         settings.requestNotificationAuthorization {
             settings.fetchPrayerTimes {
@@ -899,7 +961,7 @@ struct NotificationView: View {
             }
         }
     }
-    
+
     @MainActor
     private func onRequestAccessTapped() async {
         let center = UNUserNotificationCenter.current()
@@ -919,7 +981,7 @@ struct NotificationView: View {
 
     #if os(iOS)
     /// Previews the full adhan rather than the 30-second notification cut, so it can run for several
-    /// minutes — hence the stop control instead of a fire-and-forget tap.
+    /// minutes - hence the stop control instead of a fire-and-forget tap.
     private func playAdhanPreview() {
         stopAdhanPreview()
 
@@ -958,12 +1020,12 @@ struct NotificationView: View {
 }
 
 struct MoreNotificationView: View {
-    @EnvironmentObject var settings: Settings
-    
+    @ObservedObject var settings = Settings.shared
+
     @Environment(\.scenePhase) private var scenePhase
-    
+
     @State private var showAlert: Bool = false
-    
+
     private func turnOffNaggingModeIfAllOff() {
         if !settings.naggingFajr &&
            !settings.naggingSunrise &&
@@ -971,13 +1033,13 @@ struct MoreNotificationView: View {
            !settings.naggingAsr &&
            !settings.naggingMaghrib &&
            !settings.naggingIsha {
-            
+
             withAnimation {
                 settings.naggingMode = false
             }
         }
     }
-    
+
     var body: some View {
         List {
             Group {
@@ -985,13 +1047,14 @@ struct MoreNotificationView: View {
                 Text("Nagging mode helps those who struggle to pray on time. Once enabled, you'll get a notification at the chosen start time before each prayer, then another every 15 minutes, plus final reminders at 10 and 5 minutes remaining.")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                
+                    .padding(.vertical, 2)
+
                 Toggle("Turn on Nagging Mode", isOn: Binding(
                     get: { settings.naggingMode },
                     set: { newValue in
                         withAnimation {
                             settings.naggingMode = newValue
-                            
+
                             if newValue {
                                 settings.notificationFajr = true
                                 settings.notificationSunrise = true
@@ -999,7 +1062,7 @@ struct MoreNotificationView: View {
                                 settings.notificationAsr = true
                                 settings.notificationMaghrib = true
                                 settings.notificationIsha = true
-                                
+
                                 settings.naggingFajr = true
                                 settings.naggingSunrise = true
                                 settings.naggingDhuhr = true
@@ -1032,7 +1095,7 @@ struct MoreNotificationView: View {
                     .pickerStyle(.segmented)
                     #endif
                     .onChange(of: settings.naggingStartOffset) { _ in settings.hapticFeedback() }
-                    
+
                     Group {
                         Toggle("Nagging before Fajr", isOn: Binding(
                             get: { settings.naggingFajr },
@@ -1091,7 +1154,7 @@ struct MoreNotificationView: View {
                     .tint(settings.accentColor.color)
                 }
             }
-            
+
             if !settings.naggingMode {
                 Section(header: Text("ALL PRAYER NOTIFICATIONS")) {
                     Toggle("Turn On All Prayer Notifications", isOn: Binding(
@@ -1130,7 +1193,7 @@ struct MoreNotificationView: View {
                                 settings.preNotificationIsha = newValue
                             }
                         }
-                    ), in: 0...30, step: 5) {
+                    ), in: 0...120, step: 1) {
                         Text("All Prayer Prenotifications:")
                             .font(.subheadline)
                         Text("\(settings.preNotificationFajr) minute\(settings.preNotificationFajr != 1 ? "s" : "")")
@@ -1139,7 +1202,7 @@ struct MoreNotificationView: View {
                     }
                 }
             }
-            
+
             if !settings.naggingMode {
                 NotificationSettingsSection(prayerName: "Fajr", preNotificationTime: $settings.preNotificationFajr, isNotificationOn: $settings.notificationFajr)
                 NotificationSettingsSection(prayerName: "Shurooq", preNotificationTime: $settings.preNotificationSunrise, isNotificationOn: $settings.notificationSunrise)
@@ -1233,10 +1296,10 @@ struct MoreNotificationView: View {
 }
 
 struct NotificationSettingsSection: View {
-    @EnvironmentObject var settings: Settings
-    
+    @ObservedObject var settings = Settings.shared
+
     let prayerName: String
-    
+
     @Binding var preNotificationTime: Int
     @Binding var isNotificationOn: Bool
 
@@ -1251,6 +1314,34 @@ struct NotificationSettingsSection: View {
         }
     }
 
+    /// Only the five daily prayers carry an adhan. Shurooq and the optional times always use the default
+    /// notification sound (see `prayerNotificationSound`), so they get no adhan controls at all.
+    private var shortAdhan: Binding<Bool>? {
+        switch prayerName {
+        case "Fajr":    return $settings.shortAdhanFajr
+        case "Dhuhr":   return $settings.shortAdhanDhuhr
+        case "Asr":     return $settings.shortAdhanAsr
+        case "Maghrib": return $settings.shortAdhanMaghrib
+        case "Isha":    return $settings.shortAdhanIsha
+        default:        return nil
+        }
+    }
+
+    private var adhanSound: Binding<Bool>? {
+        switch prayerName {
+        case "Fajr":    return $settings.adhanSoundFajr
+        case "Dhuhr":   return $settings.adhanSoundDhuhr
+        case "Asr":     return $settings.adhanSoundAsr
+        case "Maghrib": return $settings.adhanSoundMaghrib
+        case "Isha":    return $settings.adhanSoundIsha
+        default:        return nil
+        }
+    }
+
+    /// With "Default" chosen there is no recording to play or shorten, so the per-prayer adhan controls have
+    /// nothing to act on and are hidden rather than shown doing nothing.
+    private var hasAdhanRecording: Bool { settings.adhanNotificationSound != "default" }
+
     var body: some View {
         Section(header: Text(prayerName.uppercased())) {
             Toggle("Notification", isOn: $isNotificationOn.animation(.easeInOut))
@@ -1258,13 +1349,40 @@ struct NotificationSettingsSection: View {
                 .onChange(of: isNotificationOn) { _ in settings.hapticFeedback() }
 
             if isNotificationOn {
-                Stepper(value: $preNotificationTime.animation(.easeInOut), in: 0...30, step: 5) {
+                Stepper(value: $preNotificationTime.animation(.easeInOut), in: 0...120, step: 1) {
                     Text("Prenotification Time:")
                         .font(.subheadline)
-                    
+
                     Text("\(preNotificationTime) minute\(preNotificationTime != 1 ? "s" : "")")
                         .font(.subheadline)
                         .foregroundColor(settings.accentColor.color)
+                }
+
+                if let adhanSound, hasAdhanRecording {
+                    VStack(alignment: .leading) {
+                        Toggle("Play Adhan", isOn: adhanSound.animation(.easeInOut))
+                            .font(.subheadline)
+                            .onChange(of: adhanSound.wrappedValue) { _ in settings.hapticFeedback() }
+
+                        Text("Turn off to get an ordinary notification sound for this prayer, while the others still call the adhan.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 2)
+                    }
+
+                    // Nothing to shorten once the adhan itself is off.
+                    if let shortAdhan, adhanSound.wrappedValue {
+                        VStack(alignment: .leading) {
+                            Toggle("Short Adhan", isOn: shortAdhan.animation(.easeInOut))
+                                .font(.subheadline)
+                                .onChange(of: shortAdhan.wrappedValue) { _ in settings.hapticFeedback() }
+
+                            Text("Plays a brief excerpt instead of the adhan's first 30 seconds.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.vertical, 2)
+                        }
+                    }
                 }
             }
 
@@ -1283,3 +1401,319 @@ struct NotificationSettingsSection: View {
         SettingsAdhanView(showNotifications: true)
     }
 }
+
+#if os(iOS)
+// MARK: - Settings-search entries (kept in THIS file, next to the screens they describe)
+extension SettingsSearchEntry {
+    static let notificationEntries: [SettingsSearchEntry] = [
+        .init(title: "Notification Settings", path: "Notifications", keywords: "alerts permission bell", destination: .notifications),
+        .init(title: "Adhan Sound", path: "Notifications", keywords: "athan azan sound mecca madinah silent mode ringer", destination: .notifications),
+        .init(title: "Hijri Calendar Notifications", path: "Notifications", keywords: "islamic events eid ramadan reminders", destination: .notifications),
+        .init(title: "Prayer Reminders & Pre-Notifications", path: "Notifications → Prayer Reminders", keywords: "before minutes early alert per prayer fajr dhuhr asr maghrib isha", destination: .notificationReminders),
+        .init(title: "Nagging Mode", path: "Notifications → Prayer Reminders", keywords: "nag repeat reminders pray on time cascade did you pray tracker", destination: .notificationReminders),
+    ]
+
+    static let adhanEntries: [SettingsSearchEntry] = [
+        .init(title: "Prayer Settings", path: "Al-Adhan", keywords: "salah salat times adhan", destination: .prayerSettings),
+        .init(title: "Traveling Mode (Qasr)", path: "Prayer Settings → Traveling Mode", keywords: "travel shorten combine journey safar 48 miles automatic", destination: .travelingMode),
+        .init(title: "Optional Prayer Times", path: "Prayer Settings", keywords: "duha duhaa islamic midnight last third night tahajjud suhoor", destination: .prayerSettings),
+        .init(title: "Manual Prayer Offsets", path: "Prayer Settings", keywords: "adjust minutes plus minus tune offset", destination: .prayerSettings),
+        .init(title: "Custom Prayer Names", path: "Prayer Settings", keywords: "rename spelling fadjr salah names", destination: .prayerSettings),
+        .init(title: "Hijri Date Offset", path: "Prayer Settings", keywords: "hijri adjust day moon date calendar", destination: .prayerSettings),
+        .init(title: "Sky View & Colors", path: "Prayer Settings → Sky Colors", keywords: "background gradient sunrise sunset theme sky", destination: .skyColors),
+    ]
+}
+#endif
+
+// MARK: - Prayer calculation picker (merged from PrayerCalculationListView.swift; PrayerCalculationMethods.swift stays standalone - widgets compile it too)
+
+/// The calculation-method picker: a searchable list, one row per method, each showing the angles it actually
+/// uses. Built like `ReciterListView` on purpose - it is the same shape of problem (a long list of named
+/// options where the user is hunting for one), and it deserves the same affordances.
+///
+/// It replaced a wheel `Picker`, which could show neither the angles nor a search field, and which offered
+/// only the dozen methods the Adhan package's enum happened to contain.
+struct PrayerCalculationListView: View {
+    @ObservedObject var settings = Settings.shared
+
+    @State private var searchText = ""
+
+    private var customMethod: PrayerCalculationMethod {
+        PrayerCalculationCatalog.custom(
+            fajrAngle: settings.customFajrAngle,
+            ishaAngle: settings.customIshaAngle
+        )
+    }
+
+    private var selectedID: String {
+        settings.canonicalPrayerCalculationMethod(settings.prayerCalculation)
+    }
+
+    private func normalized(_ value: String) -> String {
+        value.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var query: String { normalized(searchText) }
+    private var isSearching: Bool { !query.isEmpty }
+
+    /// Name, region and angles are all searchable: people look for "Karachi", for "Malaysia", and for "18".
+    private func matches(_ method: PrayerCalculationMethod) -> Bool {
+        guard isSearching else { return true }
+        let haystack = [method.name, method.region ?? "", method.angleSummary, method.id]
+            .map(normalized)
+            .joined(separator: " ")
+        return haystack.contains(query)
+    }
+
+    private var results: [PrayerCalculationMethod] {
+        PrayerCalculationCatalog.methods.filter(matches)
+    }
+
+    var body: some View {
+        List {
+            Group {
+                automaticSection
+
+                if isSearching {
+                    searchResultsBanner
+
+                    if results.isEmpty && !matches(customMethod) {
+                        Text("No calculation methods matched your search.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(results) { methodRow($0) }
+                        if matches(customMethod) { customSection }
+                    }
+                } else {
+                    Section(header: Text("METHODS")) {
+                        ForEach(PrayerCalculationCatalog.methods) { methodRow($0) }
+                    }
+
+                    customSection
+                    madhabAndHighLatitudeSection
+                    explanationSection
+                }
+            }
+            .themedListRowBackground()
+        }
+        .navigationTitle("Prayer Calculation")
+        #if os(iOS)
+        .adaptiveSafeArea(edge: .bottom) {
+            SearchBar(text: $searchText.animation(.easeInOut))
+                .padding([.leading, .top], -8)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 8)
+                .background(Color.white.opacity(0.00001))
+        }
+        #elseif os(watchOS)
+        .searchable(text: $searchText.animation(.easeInOut))
+        #endif
+        .applyConditionalListStyle()
+    }
+
+    private var automaticSection: some View {
+        Section(header: Text("AUTOMATIC")) {
+            Toggle("Choose Automatically", isOn: $settings.calculationAutomatic.animation(.easeInOut))
+                .font(.subheadline)
+                .tint(settings.accentColor.color)
+                .onChange(of: settings.calculationAutomatic) { _ in settings.hapticFeedback() }
+
+            Text("Picks the method customary in the country you are in. Choosing a method by hand below turns this off.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.vertical, 2)
+        }
+    }
+
+    private var searchResultsBanner: some View {
+        HStack(spacing: 10) {
+            Text("Search Results")
+            Spacer()
+            Text("\(results.count + (matches(customMethod) ? 1 : 0))")
+                .font(.caption.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(settings.accentColor.color)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .conditionalGlassEffect()
+                .padding(.vertical, -16)
+        }
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.secondary)
+    }
+
+    private func methodRow(_ method: PrayerCalculationMethod) -> some View {
+        let isSelected = selectedID == method.id
+
+        return VStack(alignment: .leading, spacing: 4) {
+            // The angles lead: they are the thing that actually differs between two methods, and the reason
+            // someone is on this screen at all.
+            Text(method.angleSummary)
+                .font(.caption.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.secondary.opacity(0.12))
+                )
+
+            HStack {
+                HighlightedSnippet(
+                    source: method.name,
+                    term: searchText,
+                    font: .subheadline.weight(.semibold),
+                    accent: settings.accentColor.color,
+                    fg: isSelected ? settings.accentColor.color : .primary
+                )
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "checkmark")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(settings.accentColor.color)
+                    .opacity(isSelected ? 1 : 0)
+            }
+
+            if let region = method.region {
+                Text(region)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 2)
+            }
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            settings.hapticFeedback()
+            withAnimation(.easeInOut) {
+                settings.setPrayerCalculationManually(method.id)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var customSection: some View {
+        Section(header: Text("CUSTOM")) {
+            methodRow(customMethod)
+
+            // Only editable while the custom method is the one in use - otherwise these steppers would be
+            // silently adjusting angles that nothing is computing with.
+            if selectedID == PrayerCalculationCatalog.customID {
+                Stepper(value: $settings.customFajrAngle, in: 8...25, step: 0.5) {
+                    HStack {
+                        Text("Fajr Angle")
+                        Spacer()
+                        Text("\(IshaRule.format(settings.customFajrAngle))°")
+                            .monospacedDigit()
+                            .foregroundColor(settings.accentColor.color)
+                    }
+                }
+                .font(.subheadline)
+
+                Stepper(value: $settings.customIshaAngle, in: 8...25, step: 0.5) {
+                    HStack {
+                        Text("Isha Angle")
+                        Spacer()
+                        Text("\(IshaRule.format(settings.customIshaAngle))°")
+                            .monospacedDigit()
+                            .foregroundColor(settings.accentColor.color)
+                    }
+                }
+                .font(.subheadline)
+
+                Text("Only set your own angles if you know the values your local mosque uses. A wrong angle means praying at the wrong time.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 2)
+            }
+        }
+    }
+
+    /// The madhab + high-latitude controls. They lived inline on the PARENT settings screen (twice
+    /// orphaned in refactors); they belong here with the rest of the calculation choices - and the
+    /// settings-search index deep-links "hanafi"/"high latitude" to this screen.
+    private var madhabAndHighLatitudeSection: some View {
+        Section(header: Text("MADHAB & HIGH LATITUDE")) {
+            VStack(alignment: .leading) {
+                Toggle("Hanafi Calculation for Asr", isOn: $settings.hanafiMadhab.animation(.easeInOut))
+                    .font(.subheadline)
+                    .tint(settings.accentColor.color)
+                    .onChange(of: settings.hanafiMadhab) { _ in settings.hapticFeedback() }
+
+                Text("The Hanafi madhab uses the shadow ratio of 2 to 1 for Asr, while many other schools use 1 to 1. Enable this only if you follow the Hanafi method.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 2)
+            }
+
+            VStack(alignment: .leading) {
+                Picker("High Latitude Rule", selection: $settings.highLatitudeRule.animation(.easeInOut)) {
+                    Section {
+                        ForEach(Settings.highLatitudeRuleOptions, id: \.self) { option in
+                            Text(option).tag(option)
+                                .font(.subheadline)
+                        }
+                    } header: {
+                        Text("High Latitude Rule")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .font(.subheadline)
+                .onChange(of: settings.highLatitudeRule) { _ in settings.hapticFeedback() }
+
+                Text(highLatitudeRuleCaption)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 2)
+            }
+        }
+    }
+
+    private var highLatitudeRuleCaption: String {
+        // Not merely a high-latitude concern: on a short summer night the rule can shift Fajr and Isha as far
+        // south as Cairo (~30°N). Only in winter, or near the equator, does the choice make no difference.
+        var caption = "When the night is short, the sun never sinks low enough for the twilight that defines "
+            + "Fajr and Isha, so they are estimated. This matters most far from the equator, but can shift "
+            + "summer times at any latitude."
+        if let location = settings.currentLocation, location.latitude != 1000, location.longitude != 1000 {
+            let coordinates = Coordinates(latitude: location.latitude, longitude: location.longitude)
+            caption += " Automatic uses \(settings.recommendedHighLatitudeRuleLabel(at: coordinates)) in \(location.city)."
+        }
+        return caption
+    }
+
+    private var explanationSection: some View {
+        Section(header: Text("ABOUT THESE ANGLES")) {
+            Text("Fajr begins at true dawn and Isha at nightfall. Neither is a clock time: both are defined by how far the sun has sunk below the horizon, and the bodies below differ on where exactly to draw that line. A larger angle means an earlier Fajr and a later Isha.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.vertical, 2)
+
+            Text("Umm Al-Qura and Qatar use a fixed interval after Maghrib for Isha instead of an angle, because at their latitude the twilight is consistent enough for a clock to be reliable.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.vertical, 2)
+
+            Text("Use the method your local mosque uses. If you do not know it, leave this on automatic.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.vertical, 2)
+        }
+    }
+}
+
+#if os(iOS)
+// MARK: - Settings-search entries (kept in THIS file, next to the screen they describe)
+extension SettingsSearchEntry {
+    static let prayerCalculationEntries: [SettingsSearchEntry] = [
+        .init(title: "Prayer Calculation Method", path: "Prayer Settings → Prayer Calculation", keywords: "method angles isna mwl muslim world league egypt karachi umm al-qura makkah moonsighting jakim malaysia singapore indonesia turkey diyanet automatic country", destination: .prayerCalculation),
+        .init(title: "Custom Calculation Angles", path: "Prayer Settings → Prayer Calculation", keywords: "fajr angle isha angle degrees custom", destination: .prayerCalculation),
+        .init(title: "High Latitude Rule", path: "Prayer Settings → Prayer Calculation", keywords: "midnight seventh night twilight northern latitude", destination: .prayerCalculation),
+        .init(title: "Hanafi Madhab (Asr Time)", path: "Prayer Settings → Prayer Calculation", keywords: "asr later shadow madhhab school shafi", destination: .prayerCalculation),
+    ]
+}
+#endif

@@ -5,7 +5,7 @@ import CoreLocation
 // MARK: - PrayerTimesMapView
 
 struct PrayerTimesMapView: View {
-    @EnvironmentObject private var settings: Settings
+    @ObservedObject private var settings = Settings.shared
     @Environment(\.dismiss) private var dismiss
 
     @AppStorage("prayerTimesMapShowCityTime") private var showCityTime: Bool = true
@@ -72,6 +72,7 @@ struct PrayerTimesMapView: View {
                 showCityPicker = false
             })
             .environmentObject(settings)
+            .smallMediumSheetPresentation()
         }
         .onAppear { refreshPrayers() }
         .onChange(of: selectedDate) { _ in refreshPrayers() }
@@ -172,7 +173,7 @@ struct PrayerTimesMapView: View {
                         .foregroundStyle(settings.accentColor.color)
                 }
             }
-            Text("View-only — this never changes your real prayer times, notifications, or widgets.")
+            Text("View-only - this never changes your real prayer times, notifications, or widgets.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.vertical, 2)
@@ -272,7 +273,7 @@ struct PrayerTimesMapView: View {
 
     private var timeZoneCaption: String {
         let city = selectedLocation.map(shortCity) ?? "the city"
-        return "“City Time” shows each prayer on \(city)’s local clock — the time you’d see if you were there. “My Time” converts those same moments to your current time zone."
+        return "“City Time” shows each prayer on \(city)’s local clock - the time you’d see if you were there. “My Time” converts those same moments to your current time zone."
     }
 
     private var methodCaption: String {
@@ -348,7 +349,7 @@ struct PrayerTimesMapView: View {
                 .frame(width: 30, alignment: .center)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(prayer.nameTransliteration)
+                Text(prayer.displayName)
                     .font(.headline)
                 Text(prayer.nameEnglish)
                     .font(.caption2)
@@ -380,9 +381,9 @@ struct PrayerTimesMapView: View {
             HStack(spacing: 10) {
                 Text("Cities:")
                     .font(.subheadline)
-                
+
                 Spacer()
-                
+
                 Text(shortCity(selected))
                     .foregroundStyle(settings.accentColor.color)
                     .frame(width: columnWidth, alignment: .trailing)
@@ -484,9 +485,16 @@ struct PrayerTimesMapView: View {
         }
     }
 
-    private func formattedTime(_ date: Date, for location: Location) -> String {
+    /// Shared instance: DateFormatter construction is heavy, and this ran once per prayer row per render.
+    /// Only the timeZone varies per call (cheap to set); main-thread-only, like the rest of this view.
+    private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private func formattedTime(_ date: Date, for location: Location) -> String {
+        let formatter = Self.timeFormatter
         formatter.timeZone = showCityTime ? (timeZones[timeZoneKey(for: location)] ?? .current) : .current
         return formatter.string(from: date)
     }
@@ -529,7 +537,7 @@ struct PrayerTimesMapView: View {
             guard let currentPrayer = current.first(where: { $0.nameTransliteration == selectedPrayer.nameTransliteration }) else {
                 return nil
             }
-            return (selectedPrayer.nameTransliteration, selectedPrayer.image, currentPrayer, selectedPrayer)
+            return (selectedPrayer.displayName, selectedPrayer.image, currentPrayer, selectedPrayer)
         }
     }
 

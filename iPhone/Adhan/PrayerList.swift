@@ -1,8 +1,15 @@
 import SwiftUI
 
+/// The prayer-times section. It reads as one block of color, so every tint in here is the accent's *second*
+/// color (`accent2`) - the date/location/sky section above it stays on the first. For a one-color accent the
+/// two are the same color and this looks exactly as it always did.
 struct PrayerList: View {
-    @EnvironmentObject private var settings: Settings
+    @ObservedObject private var settings = Settings.shared
     @Environment(\.scenePhase) private var scenePhase
+    // The HIGHLIGHT slice of the scrubber, not the scrubber itself: `ScrubHighlight` publishes only when
+    // the prayer under the thumb changes (a handful of times per drag). Observing `DayScrubber` here made
+    // every touch-move of the sun rebuild this whole section - list, sorts and all - ~60×/second.
+    @ObservedObject private var scrubHighlight = ScrubHighlight.shared
 
     // The calendar day this view last considered "today". Used to detect a rollover that happened while the
     // app was suspended so a stale `selectedDate` doesn't spuriously trigger the TODAY comparison on reopen.
@@ -10,6 +17,8 @@ struct PrayerList: View {
 
     @State private var expandedPrayerKey: String?
     @State private var fullPrayers = false
+    /// Presents Adhan settings landed on the Traveling Mode screen - the footer's exit from Qasr mode.
+    @State private var showTravelingModeSettings = false
     @State private var animatingBellPrayerName: String?
     @State private var bellAnimationActive = false
     @State private var selectedDate = Date()
@@ -60,7 +69,7 @@ struct PrayerList: View {
     }
 
     private func listDisplayName(for prayer: Prayer) -> String {
-        prayer.nameTransliteration
+        prayer.displayName
     }
 
     private func togglePrayerExpansion(for prayer: Prayer, animated: Bool = true) {
@@ -90,8 +99,8 @@ struct PrayerList: View {
 
     /// Prayer times for an arbitrary day, computed on demand. Today reuses the already-fetched
     /// `settings.prayers`; any other day is generated directly (the generator is cached and fast).
-    /// Computing this purely from `date` — instead of relying on `onChange` to populate published
-    /// state — is what makes selecting a different day reliably refresh every display mode.
+    /// Computing this purely from `date` - instead of relying on `onChange` to populate published
+    /// state - is what makes selecting a different day reliably refresh every display mode.
     private func prayers(for date: Date) -> [Prayer] {
         if Calendar.current.isDate(date, inSameDayAs: Date()), let prayers = settings.prayers {
             let base = fullPrayers ? prayers.fullPrayers : prayers.prayers
@@ -129,7 +138,7 @@ struct PrayerList: View {
     }
 
     /// Snaps `selectedDate` back to today when the calendar day has actually rolled over since we last saw
-    /// it — e.g. the app was suspended overnight and reopened. Without this, the stale `selectedDate` (still
+    /// it - e.g. the app was suspended overnight and reopened. Without this, the stale `selectedDate` (still
     /// on the previous day) makes `isShowingDifferentDay` true and the "TODAY vs that day" comparison block
     /// renders on reopen. Guarded on an actual day change, so a day the user deliberately picked earlier the
     /// same session (background → foreground within one day) is left untouched.
@@ -143,6 +152,12 @@ struct PrayerList: View {
                 compareToday = true
             }
         }
+        // The stored `prayers` object still carries YESTERDAY's date (and times). `currentPrayer` heals
+        // itself via the countdown's boundary timeline, but the displayed list served `settings.prayers`
+        // as "today" until the app was next backgrounded and reopened - an app left foregrounded past
+        // midnight showed yesterday's times all night. The fetch's own `staleDate` check makes this a
+        // no-op whenever the stored day is somehow already correct.
+        settings.fetchPrayerTimes()
     }
 
     @ViewBuilder
@@ -165,11 +180,11 @@ struct PrayerList: View {
 
     /// Lets the optional/extra prayers (Duha, Islamic Midnight, Last Third) be shown or hidden right from
     /// the prayer page, so toggling them no longer means a trip into Settings. These bind to the same
-    /// persisted settings used elsewhere — this is just a more discoverable entry point.
+    /// persisted settings used elsewhere - this is just a more discoverable entry point.
     @ViewBuilder
     private var optionalPrayersFooter: some View {
         #if os(iOS)
-        // Everything lives in one VStack so it's a single list row — no internal separators to fight with.
+        // Everything lives in one VStack so it's a single list row - no internal separators to fight with.
         // The row's own bottom separator is hidden so the button reads as a clean standalone pill.
         VStack(spacing: 18) {
             // Hand-drawn dividers top and bottom (the real list separators are hidden) so both ends match.
@@ -183,7 +198,7 @@ struct PrayerList: View {
 
             if showOptionalPrayerToggles {
                 VStack(spacing: 10) {
-                    optionalPrayerToggle("Duha", isOn: $settings.showDuha)
+                    optionalPrayerToggle("Duhaa", isOn: $settings.showDuha)
                     optionalPrayerToggle("Islamic Midnight", isOn: $settings.showIslamicMidnight)
                     optionalPrayerToggle("Last Third of the Night", isOn: $settings.showLastThird)
                 }
@@ -206,7 +221,7 @@ struct PrayerList: View {
             Text(label)
                 .font(.subheadline)
         }
-        .tint(settings.accentColor.color)
+        .tint(settings.accentColor.accent2)
         .padding(.vertical, 4)
         .onChange(of: isOn.wrappedValue) { _ in settings.hapticFeedback() }
     }
@@ -276,7 +291,7 @@ struct PrayerList: View {
         let prayerKey = expansionKey(for: prayer)
         let isExpanded = expandedPrayerKey == prayerKey
         let isCurrent = highlightsCurrent && !isComparisonBaseline && isCurrentPrayer(prayer)
-        let listIconColor = prayer.nameTransliteration == "Shurooq" ? Color.primary : settings.accentColor.color
+        let listIconColor = prayer.nameTransliteration == "Shurooq" ? Color.primary : settings.accentColor.accent2
 
         return Group {
             PrayerListRowCard(
@@ -358,7 +373,7 @@ struct PrayerList: View {
             }
 
             Divider()
-                .background(settings.accentColor.color)
+                .background(settings.accentColor.accent2)
                 .padding(.horizontal, 8)
 
             VStack(spacing: 4) {
@@ -388,21 +403,44 @@ struct PrayerList: View {
     @ViewBuilder
     private func tilesContent(prayers: [Prayer], isComparisonBaseline: Bool = false, highlightsCurrent: Bool = true) -> some View {
         #if os(watchOS)
+        // Tighter on the watch: the icon shares the name's line instead of taking one of its own, and the
+        // padding comes down - that's what lets six prayers fit a screen at a readable size.
         let columnCount = 2
+        let tileSpacing: CGFloat = 6
+        let tileHorizontalPadding: CGFloat = 7
+        let tileVerticalPadding: CGFloat = 6
         #else
         let columnCount = settings.travelingMode ? 2 : 3
+        let tileSpacing: CGFloat = 8
+        let tileHorizontalPadding: CGFloat = 8
+        let tileVerticalPadding: CGFloat = 8
         #endif
         let columns = Array(
-            repeating: GridItem(.flexible(), spacing: 10),
+            repeating: GridItem(.flexible(), spacing: tileSpacing),
             count: columnCount
         )
 
-        LazyVGrid(columns: columns, spacing: 10) {
+        LazyVGrid(columns: columns, spacing: tileSpacing) {
             ForEach(prayers, id: \.stableDisplayID) { prayer in
                 let color: Color = isComparisonBaseline ? .secondary : (highlightsCurrent ? prayerColor(for: prayer, in: prayers) : .primary)
                 let isCurrent = highlightsCurrent && !isComparisonBaseline && isCurrentPrayer(prayer)
 
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 3) {
+                    #if os(watchOS)
+                    HStack(spacing: 4) {
+                        Image(systemName: prayer.image)
+                            .font(.caption2)
+                            .foregroundColor(color)
+
+                        Text(prayer.compactDisplayName)
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(color)
+                    }
+
+                    Text(prayer.time, style: .time)
+                        .font(.caption.monospacedDigit())
+                        .foregroundColor(color)
+                    #else
                     HStack(alignment: .top) {
                         Image(systemName: prayer.image)
                             .font(.subheadline)
@@ -410,11 +448,9 @@ struct PrayerList: View {
 
                         Spacer()
 
-                        #if os(iOS)
                         if !isComparisonBaseline {
                             prayerBell(for: prayer, rowColor: color)
                         }
-                        #endif
                     }
 
                     Text(prayer.compactDisplayName)
@@ -424,14 +460,18 @@ struct PrayerList: View {
                     Text(prayer.time, style: .time)
                         .font(.subheadline.monospacedDigit())
                         .foregroundColor(color)
+                    #endif
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 10)
+                .padding(.horizontal, tileHorizontalPadding)
+                .padding(.vertical, tileVerticalPadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // Only the CURRENT prayer's tile is tinted. The rest are clear, so the one that matters reads
+                // at a glance instead of competing with five other filled boxes.
                 .conditionalGlassEffect(
+                    clear: !isCurrent,
                     rectangle: true,
-                    useColor: isCurrent ? 0.25 : 0.10,
-                    customTint: isCurrent ? settings.accentColor.color : nil
+                    useColor: isCurrent ? 0.25 : nil,
+                    customTint: isCurrent ? settings.accentColor.accent2 : nil
                 )
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -482,10 +522,26 @@ struct PrayerList: View {
                     fullPrayers.toggle()
                 }
 
+                #if os(iOS)
+                // The footer explains Qasr but gave no way OUT of it: turning traveling mode off meant
+                // finding the setting by hand. This lands directly on the Traveling Mode screen.
+                footerActionButton("Traveling Mode Settings") {
+                    showTravelingModeSettings = true
+                }
+                #endif
+
                 #if os(watchOS)
                 travelingModeDescription
                 #endif
             }
+            #if os(iOS)
+            .sheet(isPresented: $showTravelingModeSettings) {
+                NavigationView {
+                    SettingsAdhanView(showNotifications: false, presentedAsSheet: true, openTravelingMode: true)
+                }
+                .smallMediumSheetPresentation()
+            }
+            #endif
         }
     }
 
@@ -527,7 +583,7 @@ struct PrayerList: View {
 
     private func footerActionButton(_ title: String, action: @escaping () -> Void) -> some View {
         Text(title)
-            .foregroundColor(settings.accentColor.color)
+            .foregroundColor(settings.accentColor.accent2)
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(8)
             .conditionalGlassEffect()
@@ -539,8 +595,11 @@ struct PrayerList: View {
             }
     }
 
+    /// While the sun is being dragged along `SkyView`'s arc, the highlight follows the dragged moment rather
+    /// than the live one, so scrubbing the day walks it down the rows.
     private func isCurrentPrayer(_ prayer: Prayer) -> Bool {
-        settings.currentPrayer?.nameTransliteration.contains(prayer.nameTransliteration) ?? false
+        let reference = scrubHighlight.previewPrayer ?? settings.currentPrayer
+        return reference?.nameTransliteration.contains(prayer.nameTransliteration) ?? false
     }
 
     private func prayerColor(for prayer: Prayer, in prayers: [Prayer]) -> Color {
@@ -556,7 +615,7 @@ struct PrayerList: View {
             return .secondary
         }
         if prayerIndex == currentPrayerIndex {
-            return settings.accentColor.color
+            return settings.accentColor.accent2
         }
         return .primary
     }
@@ -567,7 +626,7 @@ struct PrayerList: View {
         }
 
         if currentPrayer.nameTransliteration.contains(prayer.nameTransliteration) {
-            return settings.accentColor.color
+            return settings.accentColor.accent2
         }
 
         guard let currentPrayerIndex = prayers.firstIndex(where: { $0.id == currentPrayer.id }),
@@ -582,6 +641,29 @@ struct PrayerList: View {
         if prayer.nameTransliteration == "Fajr" {
             return "Prophet Muhammad (peace be upon him) said: \"The time for Fajr prayer is from the appearance of dawn until the sun begins to rise\" (Sahih Muslim 612)."
         }
+
+        // The two combined (qasr) rows MUST be matched before the `contains("Dhuhr")` / `contains("Maghrib")`
+        // checks below, which would otherwise swallow them and show the plain Dhuhr / Maghrib hadith - never
+        // once naming Asr or Isha, even though those are exactly the prayers being joined into this row.
+        if prayer.nameTransliteration == "Dhuhr/Asr" {
+            return """
+            While traveling, Dhuhr and Asr are joined and each is shortened to 2 rak'ah (qasr). Pray Dhuhr first, then Asr immediately after it, in this one time slot.
+
+            Anas (may Allah be pleased with him) said: "When the Prophet (peace be upon him) set out on a journey before the sun passed its zenith, he would delay Dhuhr until the time of Asr, then he would stop and join them" (Sahih al-Bukhari 1112).
+
+            "And when you travel throughout the land, there is no blame upon you for shortening the prayer" (Quran 4:101).
+            """
+        }
+        if prayer.nameTransliteration == "Maghrib/Isha" {
+            return """
+            While traveling, Maghrib and Isha are joined. Maghrib stays 3 rak'ah (it is never shortened) and Isha is shortened to 2 rak'ah. Pray Maghrib first, then Isha immediately after it, in this one time slot.
+
+            Ibn Abbas (may Allah be pleased with him) said: "The Prophet (peace be upon him) used to join Maghrib and Isha when he was traveling" (Sahih al-Bukhari 1108).
+
+            "And when you travel throughout the land, there is no blame upon you for shortening the prayer" (Quran 4:101).
+            """
+        }
+
         if prayer.nameTransliteration.contains("Dhuhr") {
             return "Prophet Muhammad (peace be upon him) said: \"The time for Dhuhr is when the sun has passed its zenith and a person’s shadow is equal in length to his height, until the time for Asr begins\" (Muslim 612)."
         }
@@ -595,7 +677,13 @@ struct PrayerList: View {
             return "Prophet Muhammad (peace be upon him) said: \"The time for Maghrib lasts until the twilight has faded\" (Muslim 612)."
         }
         if prayer.nameTransliteration == "Isha" {
-            return "Prophet Muhammad (peace be upon him) said: \"The time for Isha lasts until the middle of the night\" (Muslim 612)."
+            return """
+            Prophet Muhammad (peace be upon him) said: "The time for Isha lasts until the middle of the night" (Muslim 612).
+
+            WITR: the night prayer is sealed with Witr, prayed any time after Isha until Fajr. The Prophet (peace and blessings be upon him) said: "Make Witr the last of your prayer at night" (Sahih al-Bukhari 998).
+
+            It is an odd number of rak'ah: one, three, five, seven, or nine. The simplest and most common are a single rak'ah, or three. How the three are prayed differs between the madhahib (three joined with one tashahhud, or two then one), and all of these are established. If you fear you will not wake, pray it before you sleep; if you expect to wake, the last third of the night is better.
+            """
         }
         if prayer.nameTransliteration == "Duhaa" {
             return """
@@ -664,7 +752,7 @@ struct PrayerList: View {
         Image(systemName: mode.symbolName)
             .font(.subheadline)
             .frame(width: 18, height: 18)
-            .foregroundColor(mode == .off ? rowColor : settings.accentColor.color)
+            .foregroundColor(mode == .off ? rowColor : settings.accentColor.accent2)
             .scaleEffect(bellScale(for: prayer))
             .rotationEffect(bellRotation(for: prayer))
             .contentShape(Rectangle())
@@ -676,38 +764,11 @@ struct PrayerList: View {
                 settings.cycleNotificationMode(for: prayer)
             }
             .padding(.leading, 6)
-            #if os(iOS)
-            .contextMenu {
-                Text("Notifications")
-                    .foregroundStyle(.secondary)
-
-                Button {
-                    settings.hapticFeedback()
-                    settings.setNotificationMode(.preNotification, for: prayer)
-                } label: {
-                    Label("Prenotification", systemImage: Settings.PrayerNotificationMode.preNotification.symbolName)
-                }
-
-                Button {
-                    settings.hapticFeedback()
-                    settings.setNotificationMode(.atTime, for: prayer)
-                } label: {
-                    Label("Notification", systemImage: Settings.PrayerNotificationMode.atTime.symbolName)
-                }
-
-                Button {
-                    settings.hapticFeedback()
-                    settings.setNotificationMode(.off, for: prayer)
-                } label: {
-                    Label("No Notification", systemImage: Settings.PrayerNotificationMode.off.symbolName)
-                }
-            }
-            #endif
     }
 }
 
 private struct PrayerListRowCard<TrailingContent: View>: View {
-    @EnvironmentObject private var settings: Settings
+    @ObservedObject private var settings = Settings.shared
 
     let prayer: Prayer
     let displayName: String
@@ -718,7 +779,7 @@ private struct PrayerListRowCard<TrailingContent: View>: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 20)
-                .fill(isCurrent ? settings.accentColor.color.opacity(0.25) : .clear)
+                .fill(isCurrent ? settings.accentColor.accent2.opacity(0.25) : .clear)
                 #if os(iOS)
                 .padding(.vertical, backgroundVerticalPadding)
                 .padding(.horizontal, -12)
@@ -726,21 +787,20 @@ private struct PrayerListRowCard<TrailingContent: View>: View {
                 .padding(.horizontal, -10)
                 #endif
 
-            HStack {
-                HStack {
+            // Spacings are explicit. Nested stacks each contributed their own ~8pt default, which stacked into a
+            // wide gap between the icon and the name, while the row itself had no vertical padding at all.
+            HStack(spacing: 0) {
+                HStack(spacing: 10) {
                     Image(systemName: prayer.image)
                         .font(.title3)
                         .foregroundColor(iconColor)
-                        .frame(width: 32, alignment: .center)
-                        .padding(.trailing, 2)
+                        .frame(width: 28, alignment: .center)
 
-                    VStack(alignment: .leading) {
-                        Text(displayName)
-                            .font(.headline)
-                            .foregroundColor(.primary)
-                    }
+                    Text(displayName)
+                        .font(.headline)
+                        .foregroundColor(.primary)
 
-                    Spacer()
+                    Spacer(minLength: 8)
 
                     Text(prayer.time, style: .time)
                         #if os(iOS)
@@ -756,6 +816,7 @@ private struct PrayerListRowCard<TrailingContent: View>: View {
 
                 trailingContent()
             }
+            .padding(.vertical, 4)
         }
     }
 
@@ -770,7 +831,7 @@ private struct PrayerListRowCard<TrailingContent: View>: View {
 }
 
 private struct PrayerDetailBlock: View {
-    @EnvironmentObject private var settings: Settings
+    @ObservedObject private var settings = Settings.shared
 
     let prayer: Prayer
     let referenceText: String?
@@ -779,12 +840,53 @@ private struct PrayerDetailBlock: View {
         Settings.optionalPrayerNames.contains(prayer.nameTransliteration)
     }
 
+    /// The two prayers a combined (traveling) row actually stands for, with the time each one would have had
+    /// on its own. The combined row carries only the FIRST prayer's time - Asr and Isha are dropped when the
+    /// list is filtered for qasr - so their times are recovered from the uncombined list for the same day.
+    private var combinedComponents: [(name: String, arabic: String, time: Date)] {
+        let members: [String]
+        switch prayer.nameTransliteration {
+        case "Dhuhr/Asr": members = ["Dhuhr", "Asr"]
+        case "Maghrib/Isha": members = ["Maghrib", "Isha"]
+        default: return []
+        }
+
+        let full = settings.getPrayerTimes(for: prayer.time, fullPrayers: true) ?? []
+        return members.compactMap { name in
+            guard let match = full.first(where: { $0.nameTransliteration == name }) else { return nil }
+            return (name: match.displayName, arabic: match.nameArabic, time: match.time)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(isOptionalPrayer ? prayer.nameEnglish : "\(prayer.nameEnglish) - \(prayer.nameArabic)")
                 .font(.title3)
-                .foregroundColor(settings.accentColor.color)
+                .foregroundColor(settings.accentColor.accent2)
                 .lineLimit(1)
+
+            // A combined row is titled "Daytime" / "Nighttime" and never names the two prayers it stands for,
+            // so tapping it left you with no idea when Asr (or Isha) actually falls. Name them, with their
+            // own times.
+            let components = combinedComponents
+            if !components.isEmpty {
+                ForEach(components, id: \.name) { component in
+                    (
+                        Text("\(component.name) (\(component.arabic)): ")
+                            + Text(component.time, style: .time)
+                    )
+                    .foregroundColor(.primary)
+                    .font(.footnote)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                }
+
+                Text("Both are prayed together in this one slot, starting at the first prayer's time.")
+                    .foregroundColor(.secondary)
+                    .font(.caption2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 2)
+            }
 
             if prayer.nameTransliteration == "Shurooq" {
                 Text("Shurooq is not a prayer, but marks the end of Fajr.")
@@ -815,7 +917,7 @@ private struct PrayerDetailBlock: View {
             }
 
             // The "other" Asr: when the user follows the Standard (majority) opinion, show the later Hanafi
-            // Asr; when they follow Hanafi, show the earlier Standard Asr — so both timings are visible from
+            // Asr; when they follow Hanafi, show the earlier Standard Asr - so both timings are visible from
             // the Asr detail regardless of the madhab setting.
             if prayer.nameTransliteration == "Asr",
                let otherAsr = settings.otherMadhabAsrTime(onSameDayAs: prayer.time) {
@@ -863,12 +965,12 @@ private struct PrayerGridTile<TrailingContent: View>: View {
     @ViewBuilder let trailingContent: () -> TrailingContent
 
     var body: some View {
-        VStack(alignment: .center, spacing: 4) {
+        VStack(alignment: .center, spacing: 2) {
             HStack(spacing: 4) {
                 Image(systemName: prayer.image)
                     .font(.subheadline)
                     .foregroundColor(color)
-                    .padding(.trailing, -2)
+                    .padding([.trailing, .bottom], -2)
 
                 Text(prayer.compactDisplayName)
                     .font(.subheadline)
