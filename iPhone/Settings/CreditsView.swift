@@ -30,7 +30,7 @@ struct CreditsView: View {
 
     private var headerSection: some View {
         VStack(alignment: .center) {
-            Text("Al-Islam was created by Abubakr Elmallah (أبوبكر الملاح), who was a 17-year-old high school student when this app was published on July 26, 2023.")
+            Text("Al-Adhan was created by Abubakr Elmallah (أبوبكر الملاح), who was a 17-year-old high school student when this app was published on December 31, 2023.")
                 .font(.headline)
                 .padding(.vertical, 4)
                 .multilineTextAlignment(.center)
@@ -67,7 +67,7 @@ struct CreditsView: View {
     private var storySection: some View {
         Section {
             Text("""
-            This app was inspired by my desire to help new reverts and non-Muslims learn about Islam and easily access the Quran and prayer times. I’m deeply grateful to my parents for instilling in me a love for the faith (may Allah reward them).
+            This app was inspired by my desire to help new reverts and non-Muslims learn about Islam and easily access prayer times. I’m deeply grateful to my parents for instilling in me a love for the faith (may Allah reward them).
 
             I also want to express my gratitude to my high school teacher, Mr. Joe Silvey, who, despite not being Muslim, stood with our Muslim Student Association and helped us organize weekly Jumuah prayers.
             """)
@@ -111,7 +111,17 @@ struct CreditsView: View {
                 creditLink("Credit for the Adhan calculations, which does everything offline on the device, goes to Batoul Apps", url: "https://github.com/batoulapps/adhan-swift")
                 
                 creditLink("Credit for the Adhan sounds goes to Omar Al-Ejel", url: "https://github.com/oalejel/Athan-Utility")
-                
+
+                creditLink("Credit for the moon phase calculation goes to SunCalc by Vladimir Agafonkin, after Meeus' Astronomical Algorithms", url: "https://github.com/mourner/suncalc")
+
+                creditLink("Credit for the Uthmani Arabic font goes to the King Fahad Complex (KFGQPC)", url: "https://qul.tarteel.ai/resources/font/245")
+
+                creditLink("Credit for the Indopak Nastaleeq Arabic font goes to Ayman Siddiqui and R. Siddiqua", url: "https://qul.tarteel.ai/resources/font/242")
+
+                creditLink("Credit for the dua and adhkar hadith references goes to Sunnah.com", url: "https://sunnah.com/")
+
+                creditLink("Credit for the How-To Guides further reading goes to IslamQA", url: "https://islamqa.info/en")
+
                 creditLink("Credit for the 99 Names of Allah goes to MyIslam", url: "https://myislam.org/99-names-of-allah/")
             }
             .foregroundColor(settings.accentColor.color)
@@ -137,7 +147,7 @@ struct CreditsView: View {
 
     private var intentSection: some View {
         Section(header: Text("A NOTE ON INTENT")) {
-            Text("This app is offered as *sadaqah jariyah* - a contribution for the benefit of the Muslim community and anyone building tools to read, learn, and listen to the Quran. If it helps you, please keep the chain of attribution intact and consider contributing improvements back.")
+            Text("This app is offered as *sadaqah jariyah* - a contribution for the benefit of the Muslim community and anyone building tools to pray on time and learn about Islam. If it helps you, please keep the chain of attribution intact and consider contributing improvements back.")
                 .font(.body)
                 .multilineTextAlignment(.leading)
         }

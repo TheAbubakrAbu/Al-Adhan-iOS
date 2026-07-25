@@ -1,51 +1,39 @@
-Al-Adhan is your complete companion for daily prayer, whether you are a lifelong believer, a new convert, or simply exploring the faith. Prayer times, the Qibla, the Islamic calendar, and powerful learning tools come together in one beautifully simple app that is completely free, ad free, and private.
+Al-Adhan is your complete companion for daily prayer, whether you are a lifelong believer, a new convert, or simply exploring the faith. Prayer times, a prayer tracker, the Qibla, the Islamic calendar, and on-device AI search come together in one beautifully simple app that is completely free, ad free, and private.
+
+PRAYER TRACKER
+- Mark each prayer with a tap - streaks, perfect days, and a calendar heatmap by day, week, month, and year.
+- Jumuah and combined traveling prayers count correctly, and a menstruation and postpartum pause never breaks your streak.
+- Nagging Mode reminds you every 15 minutes until you pray - answer "Yes, I prayed it" right from the notification.
 
 UNIQUE FEATURES
-- Traveling Mode: Shorten prayers while traveling. It can turn on automatically based on your distance from home, or you can set it manually.
-- Nagging Mode: For anyone who struggles to pray on time. Choose a start time before each prayer, then get a reminder every 15 minutes until you pray.
-- Arabic Beginner Mode: New to the Arabic script? This mode spaces out each letter so they are easier to recognize while you learn to read.
+- Traveling Mode: Shorten prayers while traveling, automatically or manually, synced between iPhone and Apple Watch.
+- On-Device AI Search: Find duas, adhkar, and the 99 Names by meaning, not just keywords - fully private, offline, and free. With Apple Intelligence, Ask AI answers questions citing only what it shows, never a religious ruling.
+- Custom Prayer Names: Spell every prayer the way you say it, everywhere the app shows it.
+- Siri Shortcuts: Ask "When is Maghrib?", "What is the current prayer?", or "When is the next prayer?" - in English and Arabic.
 
 PRAYER TIMES AND QIBLA
-- Accurate prayer times for any location, calculated privately on your device.
-- Automatic calculation method that can suggest the right method for your region.
-- Qibla compass with a live direction finder to Mecca.
-- Prayer notifications with optional pre alerts before each prayer.
-- Choose the adhan or notification sound you prefer.
-- View and plan today and future prayer times.
-- Look up prayer times for any other city, each using the method that fits its region.
-- See the other Asr time, Hanafi or standard, right inside the Asr details.
+- Accurate prayer times calculated privately on your device, with an Automatic method suggested for your region, a full method catalogue you can browse, and your own custom angles.
+- A living sky above your prayer times, with a real sun arc, night stars, and true moon phase - drag across the day to preview any moment, and pick your own sky colors.
+- Qibla compass, adhan sounds, notifications with pre alerts, and an At a Glance board with distance to Makkah, daylight, moon, and your fasting window.
+- Optional Duhaa, Islamic Midnight, and Last Third times, plus prayer times for any other city.
+- A prayer calendar for the next thirteen months, exportable as PDF or CSV.
+- Widgets for prayer times and countdowns, including the Prayer Sky widget, Lock Screen widgets, and full Apple Watch support.
 
-ISLAMIC CALENDAR AND EVENTS
-- Hijri date shown in Arabic and English.
-- Islamic calendar with key events like Ramadan and Eid.
-- Adjustable Hijri date offset, with an option to advance the date at Maghrib.
-- Notifications for Ramadan, Eid, and other important dates.
+RAMADAN
+- A Live Activity that counts down to suhoor before Fajr and to iftar before Maghrib.
+- Hijri date and Islamic calendar with events like Ramadan and Eid, plus date notifications.
+- Adjustable Hijri offset, with an option to advance the date at Maghrib.
 
 ESSENTIAL TOOLS AND LEARNING
-- Common adhkar (remembrances of Allah) and duas (supplications).
-- Tasbih counter for tracking dhikr.
-- The 99 Names of Allah with meanings and explanations.
-- Masjid Locator to help you find nearby mosques.
-- Hijri calendar converter.
-- Islamic wallpapers.
-
-PERFECT FOR CONVERTS AND BEGINNERS
-- Learn the fundamentals of Islam with clear, simple explanations.
-- Understand the Five Pillars of Islam and the Six Pillars of Faith.
-- Explore belief in Allah, the Prophet Muhammad (peace be upon him), and core Islamic teachings.
-
-LEARN THE ARABIC ALPHABET
-- View every Arabic letter, the special letters, and the numbers.
-- See letter forms and diacritics for correct pronunciation.
-- Learn the Quranic stopping signs for better recitation.
-- Adjust the size so everything is as large and clear as you need.
+- Authenticated adhkar and nine dua collections, with Listen buttons that read the Arabic aloud.
+- Tasbih counter, the 99 Names of Allah, Masjid and Halal Food locators, a Hijri converter, and Islamic wallpapers.
+- How-To Guides for how to pray, fast, give zakah, perform Hajj and Umrah, make wudhu and ghusl, and pray Jumuah and Eid.
+- Learn the Arabic alphabet, Tajweed Foundations, the Five Pillars, the Six Pillars of Faith, and core beliefs, explained simply for converts and beginners.
 
 MADE YOUR WAY
-- Customize Arabic text size, Arabic fonts, accent colors, prayer settings, and more.
-- Widgets and full Apple Watch support for prayer times on your home screen, lock screen, and wrist.
-- A clean, simple interface, easy to navigate.
+- Customize text sizes, Arabic fonts, accent and sky colors, and more - settings search jumps straight to any option.
 
 FREE, AD FREE, AND PRIVATE
-Al-Adhan is completely free. No ads, no fees, and no subscriptions. Your data never leaves your device, so your experience stays private and secure.
+Al-Adhan is completely free. No ads, no fees, and no subscriptions. Your data never leaves your device.
 
-Whether you want prayer times, the Qibla, or a deeper understanding of Islam, Al-Adhan is your daily companion. Download it today and take the next step in your faith journey.
+Whether you seek prayer times, the Qibla, or a deeper understanding of Islam, download Al-Adhan today and take the next step in your faith journey.

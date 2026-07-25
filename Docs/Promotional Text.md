@@ -1,1 +1,1 @@
-Everything you need to pray on time: accurate prayer times, Qibla, the Islamic calendar, and Arabic learning. Free, no ads, and fully private.
+Now with a prayer tracker with streaks, a living sky over your prayer times, and on-device AI search for duas and adhkar. Free, ad free, and fully private.

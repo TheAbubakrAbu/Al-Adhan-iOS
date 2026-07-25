@@ -1,3 +1,41 @@
+# Version 2.6.0
+
+A prayer tracker, on-device AI search, a living sky over your prayer times, an exportable prayer calendar, and a much deeper set of Islamic tools.
+
+Prayer Tracker:
+- Mark each prayer with a tap right on the Adhan tab, then watch your streaks, perfect days, and totals grow in History & Insights - a calendar heatmap by day, week, month, and year.
+- Travel-aware and Friday-aware: Jumuah counts as Dhuhr, and combined traveling prayers count as both. A menstruation and postpartum pause keeps exempt days from ever breaking a streak.
+- Nagging Mode now works with the tracker: answer "Yes, I prayed it" right from the notification to mark the prayer and stop the remaining reminders.
+
+AI Search:
+- Search the duas, adhkar, the 99 Names of Allah, and the Arabic alphabet by meaning, not just keywords - "anxiety before an exam" finds the duas for worry even when neither word appears. Built with Apple's on-device language frameworks: private, offline, and free.
+- On iPhones with Apple Intelligence, Ask AI answers your question in a few sentences drawn only from what it cites right below the answer - and it never gives religious rulings.
+
+Al-Adhan:
+- A living sky over your prayer times: the sun rides its true arc, stars come out at night, and the moon shows its real phase. Drag across the day to preview any moment, and pick your own sky colors for every prayer.
+- A new At a Glance board: Qibla direction, distance to Makkah, daylight, fasting window, night, moon, next Islamic date, distance from home, and more.
+- A prayer calendar of the next thirteen months, browsable in the app and exportable as PDF or CSV.
+- A full calculation method catalogue you can browse by region, with the angles each one uses shown up front, plus your own custom angles.
+- Rename any prayer to the spelling you use - the change follows into notifications, the widgets, and your Apple Watch.
+- Optional Duhaa, Islamic Midnight, and Last Third times, each with their own notifications.
+- A Ramadan Live Activity that counts down to suhoor before Fajr and to iftar before Maghrib.
+- Siri now answers "When is Maghrib?", "What is the current prayer?", and "When is the next prayer?" - in English and Arabic.
+
+Widgets and Apple Watch:
+- A new Prayer Sky widget shows the current prayer and countdown over that prayer's colors, along with sky versions of Prayer Countdown and Prayer Times and a Prayer Glance on the standard background.
+- The watch gets its own sky strip under the countdown, and Traveling Mode and settings sync more reliably between iPhone and Apple Watch, including right after pairing a new watch.
+
+Islamic Tools:
+- New Halal Food Locator beside the Masjid Locator - both center on you as soon as your location arrives.
+- Nine dua collections, each supplication authenticated with its exact source, and Listen buttons that read the Arabic aloud across duas, adhkar, and the Arabic alphabet.
+- New How-To Guides: how to pray, fast, give zakah, perform Hajj and Umrah, make wudhu and ghusl, pray Jumuah and Eid, and give the adhan and iqamah.
+- Tajweed Foundations, a full reference for the rules of recitation, plus a far deeper Pillars & Beliefs section and a rebuilt Arabic Alphabet.
+- Settings reorganized with a search that jumps straight to any setting.
+
+Bug fixes and optimizations:
+- Performance, reliability, and polish throughout.
+
+
 # Version 2.5.3
 
 A fresh new look, smarter prayer features, and polish throughout the app.
@@ -18,6 +56,7 @@ Tools and Learning:
 
 Bug fixes and optimizations:
 - Performance improvements, reliability fixes, and polish throughout.
+
 
 # Version 2.0.0
 
