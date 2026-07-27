@@ -2,7 +2,7 @@ import SwiftUI
 import WidgetKit
 
 @main
-struct AlAdhanApp: App {
+struct AlIslamApp: App {
     @StateObject private var settings = Settings.shared
     @StateObject private var namesData = NamesViewModel.shared
 
@@ -69,10 +69,6 @@ struct AlAdhanApp: App {
             WidgetCenter.shared.reloadAllTimelines()
         }
         .onChange(of: scenePhase) { phase in
-            // Only when LEAVING the foreground: that's when the widgets become visible and need the fresh
-            // snapshot. Running this on every transition (including becoming active) paid a JSON encode plus
-            // a reload of every widget timeline each time, against WidgetKit's daily reload budget.
-            if phase != .active { }
             if phase == .active {
                 // Play the adhan in-app on time while open (the scheduled notification covers the closed
                 // case and can be delivered late by the system, especially on Mac/Catalyst).
@@ -81,9 +77,6 @@ struct AlAdhanApp: App {
                 // can start the fasting countdown. It no-ops outside Ramadan, and outside the hour before
                 // Fajr (suhoor) or Maghrib (iftar).
                 FastingActivityController.refresh()
-                // Re-resolve Hadith of the Day: `.task` fires only when the view tree is rebuilt, so an
-                // app foregrounded across midnight (never cold-launched) kept showing yesterday's card.
-                // No-ops within the same day.
                 // Coming back to a stale fix (landed, drove, flew) gets one immediate refresh; the cadence
                 // then keeps it loosely current (every ~5 min) for as long as the app stays frontmost -
                 // significant-change monitoring can't do this without cell coverage, e.g. on a plane.
@@ -169,7 +162,7 @@ private struct MainTabView: View {
     /// True while a launch/splash screen still covers the tabs (drives the under-cover warm below).
     let isCovered: Bool
 
-    private enum AppTab: Hashable { case adhan, islam, settings }
+    private enum AppTab: Hashable { case adhan, quran, hadith, islam, settings }
 
     // We land the user on Adhan, so Adhan is the initial tab and builds first. The Quran tab is realized during
     // `warmUnderCover()` - briefly selected so `TabView` builds and RETAINS its heavy view tree, then we settle
@@ -220,7 +213,6 @@ private struct MainTabView: View {
 
         guard isCovered else { LaunchWarmup.shared.markWarm(); return }
 
-        // Build the real surah list, not the empty loading state.
         if Task.isCancelled { LaunchWarmup.shared.markWarm(); return }
 
         // Walk every tab so TabView builds + RETAINS each view tree, heaviest (Quran) first with the longest
@@ -251,6 +243,9 @@ private struct MainTabView: View {
         #endif
         return .adhan
     }
+
+    // The broad Quran warm moved to `QuranLaunchWarmup.prewarmAll()` in the Quran module (MushafReader.swift);
+    // the `.task` above calls it directly.
 
     @ViewBuilder
     private var tabs: some View {
