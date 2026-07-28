@@ -2,29 +2,31 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.Quran.Elmallah.Prayer-Times.fetchPrayerTimes</string>
+		<string>com.Quran.Elmallah.Prayer-Times.processingRefresh</string>
 	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Needed to accurately determine prayer times based on where you are (your location stays on your device).</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Needed to accurately determine prayer times based on where you are (your location stays on your device).</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Needed to accurately determine prayer times based on where you are (your location stays on your device).</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Used to save wallpapers you choose to your Photo Library.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Uthmani.ttf</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>
+		<string>audio</string>
 		<string>fetch</string>
-		<string>processing</string>
 		<string>location</string>
+		<string>processing</string>
 	</array>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Used to save wallpapers you choose to your Photo Library.</string>
-	<key>NSLocationAlwaysUsageDescription</key>
-	<string>Needed to accurately determine prayer times based on where you are (your location stays on your device).</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Needed to accurately determine prayer times based on where you are (your location stays on your device).</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Needed to accurately determine prayer times based on where you are (your location stays on your device).</string>
 </dict>
 </plist>

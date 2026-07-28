@@ -69,6 +69,23 @@
 		725BC7B3301757D500FB1536 /* CustomPrayerNames.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC77C301757C000FB1536 /* CustomPrayerNames.swift */; };
 		725BC7B4301757D500FB1536 /* PrayerCalculationMethods.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC77D301757C000FB1536 /* PrayerCalculationMethods.swift */; };
 		725BC7B5301757D500FB1536 /* SkyPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC77B301757C000FB1536 /* SkyPalette.swift */; };
+		725BC7BA3018A69000FB1536 /* ZakahView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7B93018A69000FB1536 /* ZakahView.swift */; };
+		725BC7BB3018A69000FB1536 /* ZakahView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7B93018A69000FB1536 /* ZakahView.swift */; };
+		725BC7CA3018A6DD00FB1536 /* PrayersProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7BC3018A6DD00FB1536 /* PrayersProvider.swift */; };
+		725BC7CB3018A6DD00FB1536 /* LockScreenFirst3Widget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7C53018A6DD00FB1536 /* LockScreenFirst3Widget.swift */; };
+		725BC7CC3018A6DD00FB1536 /* PrayersGridWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7C23018A6DD00FB1536 /* PrayersGridWidget.swift */; };
+		725BC7CD3018A6DD00FB1536 /* PrayerGradientWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7BF3018A6DD00FB1536 /* PrayerGradientWidget.swift */; };
+		725BC7CE3018A6DD00FB1536 /* CountdownWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7BE3018A6DD00FB1536 /* CountdownWidget.swift */; };
+		725BC7CF3018A6DD00FB1536 /* CountdownSimpleWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7BD3018A6DD00FB1536 /* CountdownSimpleWidget.swift */; };
+		725BC7D03018A6DD00FB1536 /* FastingAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7C83018A6DD00FB1536 /* FastingAttributes.swift */; };
+		725BC7D13018A6DD00FB1536 /* LockScreenLast3Widget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7C63018A6DD00FB1536 /* LockScreenLast3Widget.swift */; };
+		725BC7D23018A6DD00FB1536 /* FastingLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7C73018A6DD00FB1536 /* FastingLiveActivity.swift */; };
+		725BC7D33018A6DD00FB1536 /* PrayerProgressWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7C03018A6DD00FB1536 /* PrayerProgressWidgets.swift */; };
+		725BC7D43018A6DD00FB1536 /* LockScreenNextWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7C33018A6DD00FB1536 /* LockScreenNextWidget.swift */; };
+		725BC7D53018A6DD00FB1536 /* PrayersSplitWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7C13018A6DD00FB1536 /* PrayersSplitWidget.swift */; };
+		725BC7D63018A6DD00FB1536 /* LockScreenPrayerWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7C43018A6DD00FB1536 /* LockScreenPrayerWidget.swift */; };
+		725BC7D73018A6E500FB1536 /* PrayersProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7BC3018A6DD00FB1536 /* PrayersProvider.swift */; };
+		725BC7D83018A6F100FB1536 /* FastingAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7C83018A6DD00FB1536 /* FastingAttributes.swift */; };
 		725C5E393013ABF300DFEC8B /* egypt-short.caf in Resources */ = {isa = PBXBuildFile; fileRef = 725C5E1C3013ABBD00DFEC8B /* egypt-short.caf */; };
 		725C5E3A3013ABF300DFEC8B /* zakariya.caf in Resources */ = {isa = PBXBuildFile; fileRef = 725C5E143013ABBD00DFEC8B /* zakariya.caf */; };
 		725C5E3B3013ABF300DFEC8B /* abdulghaffar.caf in Resources */ = {isa = PBXBuildFile; fileRef = 725C5E0B3013ABBD00DFEC8B /* abdulghaffar.caf */; };
@@ -205,20 +222,6 @@
 		725C5F233013B90D00DFEC8B /* SearchBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725C5F0C3013B90D00DFEC8B /* SearchBar.swift */; };
 		725C5F253013C04D00DFEC8B /* Highlighted.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725C5F103013B90D00DFEC8B /* Highlighted.swift */; };
 		725C5F263013C04D00DFEC8B /* Highlighted.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725C5F103013B90D00DFEC8B /* Highlighted.swift */; };
-		725C5F343013C9A400DFEC8B /* CountdownWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725C5F293013C9A400DFEC8B /* CountdownWidget.swift */; };
-		725C5F353013C9A400DFEC8B /* PrayerGradientWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725C5F2A3013C9A400DFEC8B /* PrayerGradientWidget.swift */; };
-		725C5F363013C9A400DFEC8B /* CountdownSimpleWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725C5F283013C9A400DFEC8B /* CountdownSimpleWidget.swift */; };
-		725C5F373013C9A400DFEC8B /* LockScreenFirst3Widget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725C5F2F3013C9A400DFEC8B /* LockScreenFirst3Widget.swift */; };
-		725C5F383013C9A400DFEC8B /* PrayersGridWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725C5F2C3013C9A400DFEC8B /* PrayersGridWidget.swift */; };
-		725C5F393013C9A400DFEC8B /* LockScreenPrayerWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725C5F2E3013C9A400DFEC8B /* LockScreenPrayerWidget.swift */; };
-		725C5F3A3013C9A400DFEC8B /* PrayersProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725C5F273013C9A400DFEC8B /* PrayersProvider.swift */; };
-		725C5F3B3013C9A400DFEC8B /* FastingAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725C5F313013C9A400DFEC8B /* FastingAttributes.swift */; };
-		725C5F3C3013C9A400DFEC8B /* LockScreenNextWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725C5F2D3013C9A400DFEC8B /* LockScreenNextWidget.swift */; };
-		725C5F3D3013C9A400DFEC8B /* LockScreenLast3Widget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725C5F303013C9A400DFEC8B /* LockScreenLast3Widget.swift */; };
-		725C5F3E3013C9A400DFEC8B /* FastingLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725C5F323013C9A400DFEC8B /* FastingLiveActivity.swift */; };
-		725C5F3F3013C9A400DFEC8B /* PrayersSplitWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725C5F2B3013C9A400DFEC8B /* PrayersSplitWidget.swift */; };
-		725C5F403013C9A900DFEC8B /* PrayersProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725C5F273013C9A400DFEC8B /* PrayersProvider.swift */; };
-		725C5F4630142CA200DFEC8B /* FastingAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725C5F313013C9A400DFEC8B /* FastingAttributes.swift */; };
 		72716ABD2F946267003F15C1 /* PreviewSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72716AA02F946267003F15C1 /* PreviewSupport.swift */; };
 		72716AD42F946267003F15C1 /* PreviewSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72716AA02F946267003F15C1 /* PreviewSupport.swift */; };
 		72716B312F946398003F15C1 /* Widgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72716AE82F946384003F15C1 /* Widgets.swift */; };
@@ -350,6 +353,20 @@
 		725BC77B301757C000FB1536 /* SkyPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkyPalette.swift; sourceTree = "<group>"; };
 		725BC77C301757C000FB1536 /* CustomPrayerNames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomPrayerNames.swift; sourceTree = "<group>"; };
 		725BC77D301757C000FB1536 /* PrayerCalculationMethods.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrayerCalculationMethods.swift; sourceTree = "<group>"; };
+		725BC7B93018A69000FB1536 /* ZakahView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZakahView.swift; sourceTree = "<group>"; };
+		725BC7BC3018A6DD00FB1536 /* PrayersProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrayersProvider.swift; sourceTree = "<group>"; };
+		725BC7BD3018A6DD00FB1536 /* CountdownSimpleWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownSimpleWidget.swift; sourceTree = "<group>"; };
+		725BC7BE3018A6DD00FB1536 /* CountdownWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownWidget.swift; sourceTree = "<group>"; };
+		725BC7BF3018A6DD00FB1536 /* PrayerGradientWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrayerGradientWidget.swift; sourceTree = "<group>"; };
+		725BC7C03018A6DD00FB1536 /* PrayerProgressWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrayerProgressWidgets.swift; sourceTree = "<group>"; };
+		725BC7C13018A6DD00FB1536 /* PrayersSplitWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrayersSplitWidget.swift; sourceTree = "<group>"; };
+		725BC7C23018A6DD00FB1536 /* PrayersGridWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrayersGridWidget.swift; sourceTree = "<group>"; };
+		725BC7C33018A6DD00FB1536 /* LockScreenNextWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockScreenNextWidget.swift; sourceTree = "<group>"; };
+		725BC7C43018A6DD00FB1536 /* LockScreenPrayerWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockScreenPrayerWidget.swift; sourceTree = "<group>"; };
+		725BC7C53018A6DD00FB1536 /* LockScreenFirst3Widget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockScreenFirst3Widget.swift; sourceTree = "<group>"; };
+		725BC7C63018A6DD00FB1536 /* LockScreenLast3Widget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockScreenLast3Widget.swift; sourceTree = "<group>"; };
+		725BC7C73018A6DD00FB1536 /* FastingLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FastingLiveActivity.swift; sourceTree = "<group>"; };
+		725BC7C83018A6DD00FB1536 /* FastingAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FastingAttributes.swift; sourceTree = "<group>"; };
 		725C5E013013ABBD00DFEC8B /* abdulbaset-30.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "abdulbaset-30.caf"; sourceTree = "<group>"; };
 		725C5E023013ABBD00DFEC8B /* abdulghaffar-30.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "abdulghaffar-30.caf"; sourceTree = "<group>"; };
 		725C5E033013ABBD00DFEC8B /* al-qatami-30.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "al-qatami-30.caf"; sourceTree = "<group>"; };
@@ -416,18 +433,6 @@
 		725C5F103013B90D00DFEC8B /* Highlighted.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Highlighted.swift; sourceTree = "<group>"; };
 		725C5F113013B90D00DFEC8B /* FocusOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusOverlay.swift; sourceTree = "<group>"; };
 		725C5F123013B90D00DFEC8B /* ArabicSpeech.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArabicSpeech.swift; sourceTree = "<group>"; };
-		725C5F273013C9A400DFEC8B /* PrayersProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrayersProvider.swift; sourceTree = "<group>"; };
-		725C5F283013C9A400DFEC8B /* CountdownSimpleWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownSimpleWidget.swift; sourceTree = "<group>"; };
-		725C5F293013C9A400DFEC8B /* CountdownWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownWidget.swift; sourceTree = "<group>"; };
-		725C5F2A3013C9A400DFEC8B /* PrayerGradientWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrayerGradientWidget.swift; sourceTree = "<group>"; };
-		725C5F2B3013C9A400DFEC8B /* PrayersSplitWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrayersSplitWidget.swift; sourceTree = "<group>"; };
-		725C5F2C3013C9A400DFEC8B /* PrayersGridWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrayersGridWidget.swift; sourceTree = "<group>"; };
-		725C5F2D3013C9A400DFEC8B /* LockScreenNextWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockScreenNextWidget.swift; sourceTree = "<group>"; };
-		725C5F2E3013C9A400DFEC8B /* LockScreenPrayerWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockScreenPrayerWidget.swift; sourceTree = "<group>"; };
-		725C5F2F3013C9A400DFEC8B /* LockScreenFirst3Widget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockScreenFirst3Widget.swift; sourceTree = "<group>"; };
-		725C5F303013C9A400DFEC8B /* LockScreenLast3Widget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockScreenLast3Widget.swift; sourceTree = "<group>"; };
-		725C5F313013C9A400DFEC8B /* FastingAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FastingAttributes.swift; sourceTree = "<group>"; };
-		725C5F323013C9A400DFEC8B /* FastingLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FastingLiveActivity.swift; sourceTree = "<group>"; };
 		72616D7F2D52F70D00A66C86 /* Info-Widget.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info-Widget.plist"; sourceTree = "<group>"; };
 		72716AA02F946267003F15C1 /* PreviewSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewSupport.swift; sourceTree = "<group>"; };
 		72716AE82F946384003F15C1 /* Widgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Widgets.swift; sourceTree = "<group>"; };
@@ -522,6 +527,26 @@
 			path = Adhan;
 			sourceTree = "<group>";
 		};
+		725BC7C93018A6DD00FB1536 /* Adhan */ = {
+			isa = PBXGroup;
+			children = (
+				725BC7BC3018A6DD00FB1536 /* PrayersProvider.swift */,
+				725BC7BD3018A6DD00FB1536 /* CountdownSimpleWidget.swift */,
+				725BC7BE3018A6DD00FB1536 /* CountdownWidget.swift */,
+				725BC7BF3018A6DD00FB1536 /* PrayerGradientWidget.swift */,
+				725BC7C03018A6DD00FB1536 /* PrayerProgressWidgets.swift */,
+				725BC7C13018A6DD00FB1536 /* PrayersSplitWidget.swift */,
+				725BC7C23018A6DD00FB1536 /* PrayersGridWidget.swift */,
+				725BC7C33018A6DD00FB1536 /* LockScreenNextWidget.swift */,
+				725BC7C43018A6DD00FB1536 /* LockScreenPrayerWidget.swift */,
+				725BC7C53018A6DD00FB1536 /* LockScreenFirst3Widget.swift */,
+				725BC7C63018A6DD00FB1536 /* LockScreenLast3Widget.swift */,
+				725BC7C73018A6DD00FB1536 /* FastingLiveActivity.swift */,
+				725BC7C83018A6DD00FB1536 /* FastingAttributes.swift */,
+			);
+			path = Adhan;
+			sourceTree = "<group>";
+		};
 		725C5E253013ABBD00DFEC8B /* Adhan Sounds */ = {
 			isa = PBXGroup;
 			children = (
@@ -604,6 +629,7 @@
 				725C5EAC3013B85900DFEC8B /* DuaView.swift */,
 				725C5EAD3013B85900DFEC8B /* TasbihView.swift */,
 				725C5EAE3013B85900DFEC8B /* NamesView.swift */,
+				725BC7B93018A69000FB1536 /* ZakahView.swift */,
 				725C5EAF3013B85900DFEC8B /* DateView.swift */,
 				725C5EB03013B85900DFEC8B /* MasjidView.swift */,
 				725C5EB13013B85900DFEC8B /* WallpaperView.swift */,
@@ -630,30 +656,11 @@
 			path = Helpers;
 			sourceTree = "<group>";
 		};
-		725C5F333013C9A400DFEC8B /* Adhan */ = {
-			isa = PBXGroup;
-			children = (
-				725C5F273013C9A400DFEC8B /* PrayersProvider.swift */,
-				725C5F283013C9A400DFEC8B /* CountdownSimpleWidget.swift */,
-				725C5F293013C9A400DFEC8B /* CountdownWidget.swift */,
-				725C5F2A3013C9A400DFEC8B /* PrayerGradientWidget.swift */,
-				725C5F2B3013C9A400DFEC8B /* PrayersSplitWidget.swift */,
-				725C5F2C3013C9A400DFEC8B /* PrayersGridWidget.swift */,
-				725C5F2D3013C9A400DFEC8B /* LockScreenNextWidget.swift */,
-				725C5F2E3013C9A400DFEC8B /* LockScreenPrayerWidget.swift */,
-				725C5F2F3013C9A400DFEC8B /* LockScreenFirst3Widget.swift */,
-				725C5F303013C9A400DFEC8B /* LockScreenLast3Widget.swift */,
-				725C5F323013C9A400DFEC8B /* FastingLiveActivity.swift */,
-				725C5F313013C9A400DFEC8B /* FastingAttributes.swift */,
-			);
-			path = Adhan;
-			sourceTree = "<group>";
-		};
 		72716AF82F946384003F15C1 /* Widget */ = {
 			isa = PBXGroup;
 			children = (
 				72716AE82F946384003F15C1 /* Widgets.swift */,
-				725C5F333013C9A400DFEC8B /* Adhan */,
+				725BC7C93018A6DD00FB1536 /* Adhan */,
 			);
 			path = Widget;
 			sourceTree = "<group>";
@@ -1036,7 +1043,6 @@
 				725C5EBD3013B85900DFEC8B /* MasjidView.swift in Sources */,
 				725C5EBF3013B85900DFEC8B /* PillarsView.swift in Sources */,
 				725C5EC03013B85900DFEC8B /* TajweedTopics.swift in Sources */,
-				725C5F4630142CA200DFEC8B /* FastingAttributes.swift in Sources */,
 				725C5EC43013B85900DFEC8B /* IslamView.swift in Sources */,
 				725C5EC73013B85900DFEC8B /* BeliefsViews.swift in Sources */,
 				725C5EC83013B85900DFEC8B /* TasbihView.swift in Sources */,
@@ -1058,6 +1064,7 @@
 				725BC79E301757C000FB1536 /* GlanceCard.swift in Sources */,
 				725BC79F301757C000FB1536 /* PrayerCalendarView.swift in Sources */,
 				725BC7A0301757C000FB1536 /* ForegroundAdhanPlayer.swift in Sources */,
+				725BC7D83018A6F100FB1536 /* FastingAttributes.swift in Sources */,
 				725BC7A1301757C000FB1536 /* SkyColorsView.swift in Sources */,
 				725BC7A2301757C000FB1536 /* AdhanView.swift in Sources */,
 				725BC7A3301757C000FB1536 /* FastingActivityController.swift in Sources */,
@@ -1072,6 +1079,7 @@
 				725BC7AC301757C000FB1536 /* AdhanStructs.swift in Sources */,
 				725C5EDA3013B85900DFEC8B /* DateView.swift in Sources */,
 				725C5EDC3013B85900DFEC8B /* TajweedView.swift in Sources */,
+				725BC7BA3018A69000FB1536 /* ZakahView.swift in Sources */,
 				72CCAE622D42CDAD00871A6A /* AppDelegate.swift in Sources */,
 				72827EAF2E3D70EC00EBA534 /* SettingsAdhanView.swift in Sources */,
 				72537C1E2F04338E00829F59 /* AppReview.swift in Sources */,
@@ -1133,6 +1141,7 @@
 				725BC793301757C000FB1536 /* MapView.swift in Sources */,
 				725BC794301757C000FB1536 /* SkyView.swift in Sources */,
 				725BC795301757C000FB1536 /* AdhanStructs.swift in Sources */,
+				725BC7BB3018A69000FB1536 /* ZakahView.swift in Sources */,
 				72728CE82B3D205200FAA3B3 /* Settings.swift in Sources */,
 				728E2EED2E6E048300F2C24C /* SettingsAdhan.swift in Sources */,
 				729764BE2FE8DAFB00691EF5 /* WatchConnectivity.swift in Sources */,
@@ -1157,28 +1166,29 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				725BC7CA3018A6DD00FB1536 /* PrayersProvider.swift in Sources */,
+				725BC7CB3018A6DD00FB1536 /* LockScreenFirst3Widget.swift in Sources */,
+				725BC7CC3018A6DD00FB1536 /* PrayersGridWidget.swift in Sources */,
+				725BC7CD3018A6DD00FB1536 /* PrayerGradientWidget.swift in Sources */,
+				725BC7CE3018A6DD00FB1536 /* CountdownWidget.swift in Sources */,
+				725BC7CF3018A6DD00FB1536 /* CountdownSimpleWidget.swift in Sources */,
+				725BC7D03018A6DD00FB1536 /* FastingAttributes.swift in Sources */,
+				725BC7D13018A6DD00FB1536 /* LockScreenLast3Widget.swift in Sources */,
+				725BC7D23018A6DD00FB1536 /* FastingLiveActivity.swift in Sources */,
+				725BC7D33018A6DD00FB1536 /* PrayerProgressWidgets.swift in Sources */,
+				725BC7D43018A6DD00FB1536 /* LockScreenNextWidget.swift in Sources */,
+				725BC7D53018A6DD00FB1536 /* PrayersSplitWidget.swift in Sources */,
+				725BC7D63018A6DD00FB1536 /* LockScreenPrayerWidget.swift in Sources */,
 				72716B312F946398003F15C1 /* Widgets.swift in Sources */,
 				728D764D2F79DBDA00502B8A /* ArabicLetters.swift in Sources */,
 				725C5F253013C04D00DFEC8B /* Highlighted.swift in Sources */,
 				72728D282B3D52C400FAA3B3 /* Settings.swift in Sources */,
 				728E2EEC2E6E048300F2C24C /* SettingsAdhan.swift in Sources */,
 				720CCE432E3960BB002DD82E /* Globals.swift in Sources */,
-				725C5F343013C9A400DFEC8B /* CountdownWidget.swift in Sources */,
-				725C5F353013C9A400DFEC8B /* PrayerGradientWidget.swift in Sources */,
-				725C5F363013C9A400DFEC8B /* CountdownSimpleWidget.swift in Sources */,
-				725C5F373013C9A400DFEC8B /* LockScreenFirst3Widget.swift in Sources */,
-				725C5F383013C9A400DFEC8B /* PrayersGridWidget.swift in Sources */,
-				725C5F393013C9A400DFEC8B /* LockScreenPrayerWidget.swift in Sources */,
-				725C5F3A3013C9A400DFEC8B /* PrayersProvider.swift in Sources */,
-				725C5F3B3013C9A400DFEC8B /* FastingAttributes.swift in Sources */,
-				725C5F3C3013C9A400DFEC8B /* LockScreenNextWidget.swift in Sources */,
-				725C5F3D3013C9A400DFEC8B /* LockScreenLast3Widget.swift in Sources */,
 				725BC7B0301757D500FB1536 /* CustomPrayerNames.swift in Sources */,
 				725BC7B1301757D500FB1536 /* PrayerCalculationMethods.swift in Sources */,
 				725BC7B2301757D500FB1536 /* SkyPalette.swift in Sources */,
-				725C5F3E3013C9A400DFEC8B /* FastingLiveActivity.swift in Sources */,
 				725BC7AD301757C500FB1536 /* AdhanStructs.swift in Sources */,
-				725C5F3F3013C9A400DFEC8B /* PrayersSplitWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1186,10 +1196,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				725BC7D73018A6E500FB1536 /* PrayersProvider.swift in Sources */,
 				728E2EEE2E6E048300F2C24C /* SettingsAdhan.swift in Sources */,
 				725BC7AE301757C500FB1536 /* AdhanStructs.swift in Sources */,
 				728D764B2F79DBDA00502B8A /* ArabicLetters.swift in Sources */,
-				725C5F403013C9A900DFEC8B /* PrayersProvider.swift in Sources */,
 				725C5F263013C04D00DFEC8B /* Highlighted.swift in Sources */,
 				72728D582B3D538400FAA3B3 /* Settings.swift in Sources */,
 				720CCE442E3960BB002DD82E /* Globals.swift in Sources */,
