@@ -29,39 +29,86 @@ struct CreditsView: View {
     }
 
     private var headerSection: some View {
-        VStack(alignment: .center) {
-            Text("Al-Adhan was created by Abubakr Elmallah (أبوبكر الملاح), who was a 17-year-old high school student when this app was published on December 31, 2023.")
-                .font(.headline)
-                .padding(.vertical, 4)
+        VStack(alignment: .center, spacing: 10) {
+            // The app icon as the hero, in the splash screen's card language.
+            Image(AppIdentifiers.appName)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 76, height: 76)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(settings.accentColor.color.opacity(0.35), lineWidth: 1)
+                )
+                .shadow(color: settings.accentColor.color.opacity(0.35), radius: 14, x: 0, y: 6)
+                .padding(.top, 6)
+
+            Text(AppIdentifiers.appName)
+                .font(.title2.bold())
+
+            Text("Created by Abubakr Elmallah (أبوبكر الملاح), who was a 17-year-old high school student when this app was published on December 31, 2023.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, alignment: .center)
-
+            
             if let url = URL(string: "https://abubakrelmallah.com/") {
-                Link("abubakrelmallah.com", destination: url)
-                    .foregroundColor(settings.accentColor.color)
-                    .font(.headline)
-                    .multilineTextAlignment(.center)
-                    .padding(.vertical, 4)
-                    .padding(.bottom, 8)
-                    .contextMenu {
-                        Text("Copy")
-                            .foregroundStyle(.secondary)
+                Link(destination: url) {
+                    Text("abubakrelmallah.com")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(settings.accentColor.color)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                }
+                .conditionalGlassEffect()
+                .contextMenu {
+                    Text("Copy")
+                        .foregroundStyle(.secondary)
 
-                        Button {
-                            settings.hapticFeedback()
-                            UIPasteboard.general.string = "https://abubakrelmallah.com/"
-                        } label: {
-                            HStack {
-                                Image(systemName: "doc.on.doc")
-                                Text("Copy Website")
-                            }
+                    Button {
+                        settings.hapticFeedback()
+                        UIPasteboard.general.string = "https://abubakrelmallah.com/"
+                    } label: {
+                        HStack {
+                            Image(systemName: "doc.on.doc")
+                            Text("Copy Website")
                         }
                     }
+                }
             }
 
-            Divider().background(settings.accentColor.color)
+            ornamentalDivider
+                .padding(.top, 6)
         }
+        .frame(maxWidth: .infinity)
         .listRowSeparator(.hidden)
+    }
+
+    /// The plain accent line, dressed up: gradient strands fading toward the edges around a small
+    /// sparkle - the AI sections' motif, doubling as a signature.
+    private var ornamentalDivider: some View {
+        HStack(spacing: 10) {
+            LinearGradient(
+                colors: [.clear, settings.accentColor.color.opacity(0.55)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(height: 1.5)
+            .clipShape(Capsule())
+
+            Image(systemName: "sparkle")
+                .font(.caption2)
+                .foregroundColor(settings.accentColor.color)
+
+            LinearGradient(
+                colors: [settings.accentColor.color.opacity(0.55), .clear],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(height: 1.5)
+            .clipShape(Capsule())
+        }
+        .accessibilityHidden(true)
     }
 
     private var storySection: some View {
@@ -142,6 +189,8 @@ struct CreditsView: View {
                 
                 // Al-Hadith
                 creditLink("Credit for the Hadith collections goes to hadith-json by Ahmed Baset", url: "https://github.com/AhmedBaset/hadith-json")
+
+                creditLink("The English narrations that hadith-json truncated are restored from the clean scrapes of fawazahmed0/hadith-api and CheeseWithSauce/HadithsJSONFormat; all of them trace back to sunnah.com", url: "https://sunnah.com")
 
                 // All Apps
                 creditLink("Credit for the 99 Names of Allah goes to MyIslam", url: "https://myislam.org/99-names-of-allah/")

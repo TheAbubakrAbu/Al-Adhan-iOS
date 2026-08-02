@@ -2,7 +2,7 @@ import SwiftUI
 import WidgetKit
 
 @main
-struct AlIslamApp: App {
+struct AlAdhanApp: App {
     @StateObject private var settings = Settings.shared
     @StateObject private var namesData = NamesViewModel.shared
 
@@ -55,44 +55,14 @@ struct AlIslamApp: App {
                 .onAppear { settings.fetchPrayerTimes() }
                 //.statusBarHidden()
         }
-        .onChange(of: settings.accentColor) { _ in
-            WidgetCenter.shared.reloadAllTimelines()
-        }
-        // No `.onChange` refresh for `prayerCalculation`, `travelingMode`, or `hanafiMadhab`: every path
-        // that writes them (the manual setters, the dialog overrides, the auto-checks inside a fetch, a
-        // synced snapshot - and for the madhab, its own didSet with auto-checks suppressed) already
-        // performs its own recompute. A blanket refresh here would run a SECOND full forced fetch per
-        // flip and re-run the automatic detection with checks ON right after the change - the exact
-        // override/spam bug the old one-shot flags existed to paper over.
-        .onChange(of: settings.hijriOffset) { _ in
-            settings.updateDates()
-            WidgetCenter.shared.reloadAllTimelines()
-        }
+        // No `.onChange` refreshes for settings here: each setting's own didSet performs its side
+        // effects (`accentColor` and `hijriOffset` repaint widgets from Settings; `prayerCalculation`,
+        // `travelingMode`, and `hanafiMadhab` recompute on every write path already - a blanket refresh
+        // here would run a SECOND full forced fetch per flip and re-run the automatic detection with
+        // checks ON right after the change, the exact override/spam bug the old one-shot flags papered
+        // over). Phase transitions delegate to the one place that orchestrates them.
         .onChange(of: scenePhase) { phase in
-            if phase == .active {
-                // Play the adhan in-app on time while open (the scheduled notification covers the closed
-                // case and can be delivered late by the system, especially on Mac/Catalyst).
-                ForegroundAdhanPlayer.shared.reschedule()
-                // A Live Activity can only be requested from the foreground, so this is the one place that
-                // can start the fasting countdown. It no-ops outside Ramadan, and outside the hour before
-                // Fajr (suhoor) or Maghrib (iftar).
-                FastingActivityController.refresh()
-                // Coming back to a stale fix (landed, drove, flew) gets one immediate refresh; the cadence
-                // then keeps it loosely current (every ~5 min) for as long as the app stays frontmost -
-                // significant-change monitoring can't do this without cell coverage, e.g. on a plane.
-                settings.refreshLocationIfStale()
-                settings.beginForegroundLocationCadence()
-            } else {
-                ForegroundAdhanPlayer.shared.stop()
-                // A high-accuracy burst pins the GPS. `AdhanView.onDisappear` ends it when you navigate away,
-                // but backgrounding the app doesn't disappear the view - without this the burst would run to
-                // its 25-second timeout with the screen off.
-                settings.endLocationRefinement()
-                settings.endForegroundLocationCadence()
-                // Send any just-made setting change before the app is suspended, so it can't be lost (and
-                // can't be reverted by a stale synced value on the next launch).
-                WatchConnectivityManager.shared.flushPendingSync()
-            }
+            AppLifecycle.scenePhaseChanged(to: phase)
         }
     }
 
@@ -162,7 +132,7 @@ private struct MainTabView: View {
     /// True while a launch/splash screen still covers the tabs (drives the under-cover warm below).
     let isCovered: Bool
 
-    private enum AppTab: Hashable { case adhan, quran, hadith, islam, settings }
+    private enum AppTab: Hashable { case adhan, islam, settings }
 
     // We land the user on Adhan, so Adhan is the initial tab and builds first. The Quran tab is realized during
     // `warmUnderCover()` - briefly selected so `TabView` builds and RETAINS its heavy view tree, then we settle
@@ -197,9 +167,13 @@ private struct MainTabView: View {
             } message: {
                 Text("Answering yes marks it in the prayer tracker and stops the remaining reminders.")
             }
+            // Launch warmups, one .task per app domain (like AppLifecycle's sections): when this
+            // root is copied into a companion app, delete the domains it doesn't ship.
+            // Shared: the tab walk behind the launch cover.
             .task { await warmUnderCover() }
-            // The AI-search capability probe loads a disk-backed NLEmbedding model; its first touch used
-            // to land on the MAIN thread mid-launch (aiQueryEligible / corpus prep). Pay it here, off-main.
+            // Al-Quran: the AI-search capability probe loads a disk-backed NLEmbedding model; its first
+            // touch used to land on the MAIN thread mid-launch (aiQueryEligible / corpus prep). Pay it
+            // here, off-main.
             .task { Task.detached(priority: .utility) { SemanticSearchEngine.prewarmOffMain() } }
     }
 
@@ -212,8 +186,6 @@ private struct MainTabView: View {
         didWarm = true
 
         guard isCovered else { LaunchWarmup.shared.markWarm(); return }
-
-        if Task.isCancelled { LaunchWarmup.shared.markWarm(); return }
 
         // Walk every tab so TabView builds + RETAINS each view tree, heaviest (Quran) first with the longest
         // settle, then return to the Adhan landing tab. First selection of any tab later reuses the warm tree
@@ -240,6 +212,7 @@ private struct MainTabView: View {
     private var launchTab: AppTab {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-launchTabIslam") { return .islam }
+        if ProcessInfo.processInfo.arguments.contains("-launchTabSettings") { return .settings }
         #endif
         return .adhan
     }

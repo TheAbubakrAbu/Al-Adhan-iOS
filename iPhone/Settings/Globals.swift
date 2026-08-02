@@ -20,6 +20,16 @@ enum AppIdentifiers {
     /// Main iOS bundle ID and OSLog subsystem prefix (matches `PRODUCT_BUNDLE_IDENTIFIER` for the app target).
     static let bundleIdentifier = "com.Quran.Elmallah.Prayer-Times"
 
+    /// Whether this app ships the Quran itself - probed by the bundled `quran.qpk`, checked in the
+    /// same spots `QuranPackLoader.url` would look. Companion apps (Al-Adhan, Al-Hadith) bundle no
+    /// Quran pack, and shared surfaces (the 99 Names) hide every Quran reference - first-found
+    /// links, ayah quotes, Quran paragraphs - behind this. Deliberately a BUNDLE probe and not a
+    /// Quran-module type, so the check itself compiles in apps without the Quran domain.
+    static let supportsQuran: Bool =
+        Bundle.main.url(forResource: "quran", withExtension: "qpk", subdirectory: "Quran") != nil
+        || Bundle.main.url(forResource: "quran", withExtension: "qpk", subdirectory: "Data/Quran") != nil
+        || Bundle.main.url(forResource: "quran", withExtension: "qpk") != nil
+
     static let backgroundFetchPrayerTimesTaskIdentifier = "\(bundleIdentifier).fetchPrayerTimes"
     /// The overnight BGProcessingTask twin of the refresh above. Processing tasks get the system's
     /// nightly maintenance windows (typically while charging) - the slot that actually lines up with

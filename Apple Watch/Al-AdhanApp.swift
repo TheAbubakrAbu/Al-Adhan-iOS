@@ -94,9 +94,6 @@ struct AlAdhanApp: App {
 
         guard isLaunching else { LaunchWarmup.shared.markWarm(); return }
 
-        // Build the real surah list, not the empty loading state.
-        if Task.isCancelled { LaunchWarmup.shared.markWarm(); return }
-
         selectedTab = .islam
         try? await Task.sleep(nanoseconds: 150_000_000)
         selectedTab = .settings

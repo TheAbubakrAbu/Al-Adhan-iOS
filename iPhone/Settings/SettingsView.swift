@@ -25,7 +25,22 @@ struct SettingsSearchEntry: Identifiable {
         case travelingMode
         case prayerCalculation
         case skyColors
+        case appearance
         case credits
+
+        /// The chip icon a search result renders with - derived here so entries never repeat it.
+        var icon: String {
+            switch self {
+            case .notifications: return "bell.badge.fill"
+            case .notificationReminders: return "bell.and.waves.left.and.right.fill"
+            case .prayerSettings: return "safari.fill"
+            case .travelingMode: return "airplane"
+            case .prayerCalculation: return "globe.europe.africa.fill"
+            case .skyColors: return "sunset.fill"
+            case .appearance: return "paintpalette.fill"
+            case .credits: return "scroll.fill"
+            }
+        }
     }
 }
 #endif
@@ -39,6 +54,51 @@ struct SettingsView: View {
     @State private var showResetConfirmation = false
     @State private var confirmEraseEverything = false
     @State private var settingsSearchText = ""
+
+    #if os(iOS)
+    // Semantic settings search: "make text bigger" finds the font-size controls even though no
+    // entry contains those words. Tiny corpus (the hand-authored index), same engine + UX grammar
+    // as every other AI search surface.
+    @ObservedObject private var semanticEngine = SemanticSearchEngine.shared
+    @State private var settingsAIHits: [SettingsSearchEntry] = []
+    @State private var settingsAISearchTask: Task<Void, Never>?
+
+    private static let settingsSemanticCorpusID = "settings-en"
+
+    private func prepareSettingsSemanticCorpus() {
+        guard SemanticSearchEngine.isSupported, !semanticEngine.isReady(Self.settingsSemanticCorpusID) else { return }
+        let texts = Self.settingsSearchIndex.map { "\($0.title) \($0.path) \($0.keywords)" }
+        let keys = Self.settingsSearchIndex.map(\.id)
+        semanticEngine.prepare(corpusID: Self.settingsSemanticCorpusID, version: "v1-\(texts.count)", texts: texts, keys: keys)
+    }
+
+    private func runSettingsAISearch(query: String) {
+        settingsAISearchTask?.cancel()
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard SemanticSearchEngine.isSupported, trimmed.count >= 3, !trimmed.containsArabicScript else {
+            if !settingsAIHits.isEmpty { settingsAIHits = [] }
+            return
+        }
+        prepareSettingsSemanticCorpus()
+
+        settingsAISearchTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            let results = await semanticEngine.search(corpusID: Self.settingsSemanticCorpusID, query: trimmed, limit: 8)
+            guard !Task.isCancelled else { return }
+            let keys = await MainActor.run { semanticEngine.corpus(Self.settingsSemanticCorpusID)?.itemKeys }
+            await MainActor.run {
+                guard trimmed == settingsSearchText.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+                let byID = Dictionary(uniqueKeysWithValues: Self.settingsSearchIndex.map { ($0.id, $0) })
+                settingsAIHits = results.compactMap { result -> SettingsSearchEntry? in
+                    if let keys, keys.indices.contains(result.index) { return byID[keys[result.index]] }
+                    guard Self.settingsSearchIndex.indices.contains(result.index) else { return nil }
+                    return Self.settingsSearchIndex[result.index]
+                }
+            }
+        }
+    }
+    #endif
     /// Apple Music-style: true while scrolling down, minimizing the floating search bar.
     @State private var barsCollapsed = false
 
@@ -119,6 +179,13 @@ struct SettingsView: View {
         .adaptiveSafeArea(edge: .bottom) {
             VStack(spacing: SafeAreaInsetVStackSpacing.standard) {
                 SearchBar(text: $settingsSearchText.animation(.easeInOut))
+                    .onChange(of: settingsSearchText) { text in
+                        runSettingsAISearch(query: text)
+                    }
+                    .onChange(of: semanticEngine.readyCorpora) { ready in
+                        guard ready.contains(Self.settingsSemanticCorpusID), !settingsSearchText.isEmpty else { return }
+                        runSettingsAISearch(query: settingsSearchText)
+                    }
                     .padding([.horizontal, .top], -8)
                     .minimizedBarStyle(barsCollapsed)
             }
@@ -134,8 +201,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var standardSettingsSections: some View {
-        notificationSection
-        adhanSection
+        settingsHubSection
         appearanceSection
         resetSection
         creditsSection
@@ -148,8 +214,7 @@ struct SettingsView: View {
     private var settingsSplitList: some View {
         List(selection: $selectedDestination) {
             Group {
-                notificationSectionSplit
-                adhanSectionSplit
+                settingsHubSectionSplit
                 appearanceSection
                 resetSection
                 creditsSection
@@ -185,6 +250,7 @@ struct SettingsView: View {
         SettingsSearchEntry.notificationEntries
         + SettingsSearchEntry.adhanEntries
         + SettingsSearchEntry.prayerCalculationEntries
+        + SettingsSearchEntry.appearanceEntries
         + [
             // About (owned by this file's credits link).
             .init(title: "Credits & Contact", path: "Credits", keywords: "about version website email review", destination: .credits)
@@ -199,108 +265,182 @@ struct SettingsView: View {
         case .travelingMode: SettingsAdhanView(showNotifications: false, openTravelingMode: true)
         case .prayerCalculation: PrayerCalculationListView()
         case .skyColors: SkyColorsView()
+        case .appearance: AppearanceSettingsScreen()
         case .credits: CreditsView()
         }
     }
 
+    /// Ranked keyword results: every query term must match somewhere (title, path, or keywords,
+    /// diacritic-insensitive), and results order by WHERE they matched - title prefix first, then
+    /// title, then path, then keywords-only - so "not" puts Notifications above rows that merely
+    /// mention it. Ties keep the index's hand-authored order.
     private var settingsSearchResults: [SettingsSearchEntry] {
-        let query = settingsSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let query = settingsSearchText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         guard !query.isEmpty else { return [] }
         let terms = query.split(separator: " ").map(String.init)
-        return Self.settingsSearchIndex.filter { entry in
-            let blob = "\(entry.title) \(entry.path) \(entry.keywords)".lowercased()
-            return terms.allSatisfy { blob.contains($0) }
+
+        func fold(_ text: String) -> String {
+            text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         }
+
+        let scored: [(entry: SettingsSearchEntry, score: Int, order: Int)] = Self.settingsSearchIndex.enumerated().compactMap { order, entry in
+            let title = fold(entry.title)
+            let path = fold(entry.path)
+            let keywords = fold(entry.keywords)
+            var score = 0
+            for term in terms {
+                if title.hasPrefix(term) { score += 40 }
+                else if title.split(separator: " ").contains(where: { $0.hasPrefix(Substring(term)) }) { score += 24 }
+                else if title.contains(term) { score += 16 }
+                else if path.contains(term) { score += 8 }
+                else if keywords.contains(term) { score += 4 }
+                else { return nil }   // every term must land somewhere
+            }
+            return (entry, score, order)
+        }
+        return scored
+            .sorted { ($0.score, -$0.order) > ($1.score, -$1.order) }
+            .map(\.entry)
     }
 
     @ViewBuilder
     private var settingsSearchResultsSection: some View {
         let results = settingsSearchResults
+        // AI hits the keyword pass also found would render twice - keep them keyword-side (they
+        // carry the match highlight there) and let the AI section surface only the extras.
+        let keywordIDs = Set(results.map(\.id))
+        let aiOnly = settingsAIHits.filter { !keywordIDs.contains($0.id) }
+
+        if !aiOnly.isEmpty {
+            Section(header: SectionPillHeader(title: "AI MATCHES", count: aiOnly.count, icon: "sparkles", accentTitle: true)) {
+                ForEach(aiOnly) { entry in
+                    settingsSearchResultRow(entry)
+                }
+            }
+        }
+
         Section(header: SectionPillHeader(title: "SETTING RESULTS", count: results.count)) {
             if results.isEmpty {
-                Text("No settings match your search.")
+                Text(aiOnly.isEmpty ? "No settings match your search." : "No keyword matches. See the AI results above.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
 
             ForEach(results) { entry in
-                NavigationLink(destination: LazyDestination { searchDestinationView(entry.destination) }) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HighlightedSnippet(
-                            source: entry.title,
-                            term: settingsSearchText,
-                            font: .subheadline,
-                            accent: settings.accentColor.color,
-                            fg: .primary
-                        )
-
-                        Text(entry.path)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 2)
-                }
+                settingsSearchResultRow(entry)
             }
         }
     }
+
+    private func settingsSearchResultRow(_ entry: SettingsSearchEntry) -> some View {
+        NavigationLink(destination: LazyDestination { searchDestinationView(entry.destination) }) {
+            HStack(spacing: 12) {
+                AccentIconChip(systemImage: entry.destination.icon)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HighlightedSnippet(
+                        source: entry.title,
+                        term: settingsSearchText,
+                        font: .subheadline,
+                        accent: settings.accentColor.color,
+                        fg: .primary
+                    )
+
+                    // The breadcrumb, in the system's "›" grammar rather than the index's "→".
+                    Text("Settings › \(entry.path.replacingOccurrences(of: " → ", with: " › "))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+
     #endif
 
     private func resourceLink<Destination: View>(
         title: String,
         systemImage: String,
+        subtitle: String? = nil,
         @ViewBuilder destination: @escaping () -> Destination
     ) -> some View {
         // LazyDestination, same as IslamView: building the destination eagerly meant every body pass of this
         // tab constructed the full Adhan/Quran/Notification settings trees - on the watch, where TabView
         // re-evaluates neighbouring tabs on every swipe, that WAS the tab-switch lag into Settings.
         NavigationLink(destination: LazyDestination(build: destination)) {
-            toolLabel(title, systemImage: systemImage)
+            toolLabel(title, systemImage: systemImage, subtitle: subtitle)
         }
         .tint(settings.accentColor.color)
     }
 
-    private func toolLabel(_ title: String, systemImage: String) -> some View {
-        Label(
-            title: {
+    /// A settings row in the iOS Settings app's visual grammar, tinted the app's way: the icon on a
+    /// small accent-gradient chip, an optional caption under the title. `chipTint` overrides the
+    /// accent (the reset row goes red).
+    private func toolLabel(_ title: String, systemImage: String, subtitle: String? = nil, chipTint: Color? = nil) -> some View {
+        return HStack(spacing: 12) {
+            AccentIconChip(systemImage: systemImage, tint: chipTint)
+
+            VStack(alignment: .leading, spacing: 1) {
                 Text(title)
                     .foregroundColor(.primary)
-            },
-            icon: {
-                Image(systemName: systemImage)
-                    .foregroundColor(settings.accentColor.color)
+
+                // The caption column is an iPhone luxury - the 40mm screen has no room for it.
+                #if os(iOS)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                #endif
             }
-        )
-        .padding(.vertical, 4)
+        }
+        .padding(.vertical, 3)
     }
 
     @available(iOS 16.0, *)
     private func splitResourceLink(
         title: String,
         systemImage: String,
+        subtitle: String? = nil,
         value: SettingsDestination
     ) -> some View {
         NavigationLink(value: value) {
-            toolLabel(title, systemImage: systemImage)
+            toolLabel(title, systemImage: systemImage, subtitle: subtitle)
         }
         .tint(settings.accentColor.color)
     }
 
+    /// The four settings destinations as ONE card - the old one-row-per-section layout spent most
+    /// of the screen on headers. Notifications shown on watchOS too (it supports local notifications).
     @ViewBuilder
-    private var notificationSection: some View {
-        // Shown on watchOS too: watchOS now supports local notifications, so expose the settings instead
-        // of hiding them. (The iPad split layout uses notificationSectionSplit instead.)
-        Section(header: Text("NOTIFICATIONS")) {
-            resourceLink(title: "Notification Settings", systemImage: "bell.badge") {
+    private var settingsHubSection: some View {
+        Section(header: Text("SETTINGS")) {
+            resourceLink(title: "Notifications", systemImage: "bell.badge.fill",
+                         subtitle: "Prayer alerts, adhan sounds, reminders") {
                 NotificationView()
+            }
+            resourceLink(title: "Prayer Settings", systemImage: "safari.fill",
+                         subtitle: "Calculation, offsets, traveling mode") {
+                SettingsAdhanView(showNotifications: false)
             }
         }
     }
 
     @available(iOS 16.0, *)
     @ViewBuilder
-    private var notificationSectionSplit: some View {
-        Section(header: Text("NOTIFICATIONS")) {
-            splitResourceLink(title: "Notification Settings", systemImage: "bell.badge", value: .notification)
+    private var settingsHubSectionSplit: some View {
+        Section(header: Text("SETTINGS")) {
+            splitResourceLink(title: "Notifications", systemImage: "bell.badge.fill",
+                              subtitle: "Prayer alerts, adhan sounds, reminders", value: .notification)
+            splitResourceLink(title: "Prayer Settings", systemImage: "safari.fill",
+                              subtitle: "Calculation, offsets, traveling mode", value: .prayerSettings)
         }
     }
 
@@ -312,9 +452,7 @@ struct SettingsView: View {
                 settings.hapticFeedback()
                 showResetConfirmation = true
             } label: {
-                Label("Reset All Settings", systemImage: "arrow.counterclockwise")
-                    .font(.subheadline)
-                    .foregroundColor(.red)
+                toolLabel("Reset All Settings", systemImage: "arrow.counterclockwise", chipTint: .red)
             }
             // Two very different things, so they're two buttons rather than one that quietly picks for you:
             // the everyday "put the options back" and the "make it as if I'd never installed this".
@@ -359,21 +497,6 @@ struct SettingsView: View {
         #endif
     }
 
-    private var adhanSection: some View {
-        Section(header: Text("AL-ADHAN")) {
-            resourceLink(title: "Prayer Settings", systemImage: "safari") {
-                SettingsAdhanView(showNotifications: false)
-            }
-        }
-    }
-
-    @available(iOS 16.0, *)
-    private var adhanSectionSplit: some View {
-        Section(header: Text("AL-ADHAN")) {
-            splitResourceLink(title: "Prayer Settings", systemImage: "safari", value: .prayerSettings)
-        }
-    }
-
     private var appearanceSection: some View {
         Section(header: Text("APPEARANCE")) {
             SettingsAppearanceView()
@@ -406,9 +529,7 @@ struct SettingsView: View {
             settings.hapticFeedback()
             showingCredits = true
         } label: {
-            Label("View Credits", systemImage: "scroll.fill")
-                .font(.subheadline)
-                .foregroundColor(settings.accentColor.color)
+            toolLabel("View Credits", systemImage: "scroll.fill")
         }
         .sheet(isPresented: $showingCredits) {
             CreditsView()
@@ -423,9 +544,7 @@ struct SettingsView: View {
         Button {
             leaveReview()
         } label: {
-            Label("Leave a Review", systemImage: "star.bubble.fill")
-                .font(.subheadline)
-                .foregroundColor(settings.accentColor.color)
+            toolLabel("Leave a Review", systemImage: "star.bubble.fill")
         }
         .contextMenu {
             Text("Review")
@@ -451,9 +570,7 @@ struct SettingsView: View {
             settings.hapticFeedback()
             openAppSettings()
         } label: {
-            Label("Open App Settings", systemImage: "gearshape.fill")
-                .font(.subheadline)
-                .foregroundColor(settings.accentColor.color)
+            toolLabel("Open App Settings", systemImage: "gearshape.fill")
         }
         #endif
     }
@@ -575,6 +692,34 @@ struct SettingsView: View {
     }
 }
 
+#if os(iOS)
+/// The appearance section as its own pushable screen - search results need a destination, and the
+/// section otherwise lives inline on the Settings tab with nothing to navigate to.
+struct AppearanceSettingsScreen: View {
+    var body: some View {
+        List {
+            Section {
+                SettingsAppearanceView()
+            }
+            .themedListRowBackground()
+        }
+        .applyConditionalListStyle()
+        .navigationTitle("Appearance")
+    }
+}
+
+extension SettingsSearchEntry {
+    static let appearanceEntries: [SettingsSearchEntry] = [
+        .init(title: "Accent Color", path: "Appearance", keywords: "green color swatch tint custom hex theme", destination: .appearance),
+        .init(title: "App Theme (Light / Dark / Sepia / Gray)", path: "Appearance", keywords: "dark mode light mode night reading sepia gray paper background", destination: .appearance),
+        .init(title: "Custom Background Color", path: "Appearance", keywords: "custom color background hex picker theme", destination: .appearance),
+        .init(title: "Top Accent Glow", path: "Appearance", keywords: "glow wash gradient accent top background flat hide al islam green yellow brand", destination: .appearance),
+        .init(title: "Default List View", path: "Appearance", keywords: "list style plain grouped inset layout", destination: .appearance),
+        .init(title: "Haptic Feedback", path: "Appearance", keywords: "vibration taptic buzz feedback toggle", destination: .appearance),
+    ]
+}
+#endif
+
 struct SettingsAppearanceView: View {
     @ObservedObject var settings = Settings.shared
 
@@ -591,6 +736,25 @@ struct SettingsAppearanceView: View {
     private static let swatchSpacing: CGFloat = 12
     private static let swatchGridVerticalPadding: CGFloat = 16
     #endif
+
+    private func accentSwatch(_ accentColor: AccentColor) -> some View {
+        // Every preset is a single colour, so a plain circle is right here.
+        Circle()
+            .fill(accentColor.color)
+            .frame(width: Self.swatchDiameter, height: Self.swatchDiameter)
+            .overlay(
+                Circle()
+                    .stroke(settings.accentColor == accentColor ? Color.primary : Color.clear, lineWidth: 2)
+            )
+            .accessibilityLabel(accentColor.displayName)
+            .onTapGesture {
+                settings.hapticFeedback()
+
+                withAnimation {
+                    settings.accentColor = accentColor
+                }
+            }
+    }
 
     /// Reads/writes the stored custom hex; picking a color also switches the active accent to `.custom`.
     private var customAccentColorBinding: Binding<Color> {
@@ -692,22 +856,7 @@ struct SettingsAppearanceView: View {
                 count: Self.swatchColumns
             ), spacing: Self.swatchSpacing) {
                 ForEach(accentColors, id: \.self) { accentColor in
-                    // Every preset is a single colour, so a plain circle is right here.
-                    Circle()
-                        .fill(accentColor.color)
-                        .frame(width: Self.swatchDiameter, height: Self.swatchDiameter)
-                        .overlay(
-                            Circle()
-                                .stroke(settings.accentColor == accentColor ? Color.primary : Color.clear, lineWidth: 2)
-                        )
-                        .accessibilityLabel(accentColor.displayName)
-                        .onTapGesture {
-                            settings.hapticFeedback()
-
-                            withAnimation {
-                                settings.accentColor = accentColor
-                            }
-                        }
+                    accentSwatch(accentColor)
                 }
             }
             .padding(.vertical, Self.swatchGridVerticalPadding)
@@ -742,6 +891,29 @@ struct SettingsAppearanceView: View {
         }
 
         #if os(iOS)
+        VStack(alignment: .leading) {
+            Toggle("Top Accent Glow", isOn: $settings.showAccentGlow.animation(.easeInOut))
+                .font(.subheadline)
+                .onChange(of: settings.showAccentGlow) { _ in settings.hapticFeedback() }
+
+            Text("A soft wash of your accent color at the top of each screen. Turn it off for a flat background.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.vertical, 2)
+
+            if settings.showAccentGlow {
+                Toggle("Al-Islam Glow", isOn: $settings.alIslamGlow.animation(.easeInOut))
+                    .font(.subheadline)
+                    .padding(.top, 6)
+                    .onChange(of: settings.alIslamGlow) { _ in settings.hapticFeedback() }
+
+                Text("Color the glow with Al-Islam's yellow and green - yellow from the left, green from the right - instead of your accent color.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 2)
+            }
+        }
+
         VStack(alignment: .leading) {
             Toggle("Default List View", isOn: $settings.defaultView.animation(.easeInOut))
                 .font(.subheadline)
