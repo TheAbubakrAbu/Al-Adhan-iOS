@@ -50,8 +50,17 @@ struct PrayersProvider: TimelineProvider {
     private let store   = UserDefaults(suiteName: AppIdentifiers.appGroupSuiteName)
     private let settings = Settings.shared
 
+    /// How long before the next prayer the countdown complication's bar goes red ("not much time
+    /// left to pray"): 30 minutes, or half the window when the window itself is short, so a short
+    /// interval (Maghrib to Isha) isn't red for most of its life. Lives here because the timeline
+    /// must flip an entry at exactly this instant for the recolor to render on time - the view and
+    /// the provider have to agree on the number.
+    static func lowTimeWarningWindow(_ total: TimeInterval) -> TimeInterval {
+        min(30 * 60, total / 2)
+    }
+
     // Placeholder (redacted skeleton) and the gallery preview show representative sample times so they never
-    // render blank when the app hasn't cached prayers yet. The real timeline still shows only real data -
+    // render blank when the app hasn't cached prayers yet. The real timeline still shows only real data - 
     // a prayer app must never display fake prayer times as if they were the user's actual schedule.
     func placeholder(in context: Context) -> PrayersEntry { sampleEntry() }
 
@@ -110,6 +119,14 @@ struct PrayersProvider: TimelineProvider {
             if midnight > now { flipTimes.append(midnight) }
             guard let next = Calendar.current.date(byAdding: .day, value: 1, to: midnight) else { break }
             midnight = next
+        }
+        // ...plus one entry shortly BEFORE each boundary, where the countdown complication's bar
+        // turns red (`lowTimeWarningWindow`). Same content otherwise, so the other widgets just
+        // re-render unchanged.
+        let boundaryTimes = boundaries.map(\.time).sorted()
+        for (start, end) in zip(boundaryTimes, boundaryTimes.dropFirst()) {
+            let warning = end.addingTimeInterval(-Self.lowTimeWarningWindow(end.timeIntervalSince(start)))
+            if warning > now, warning <= horizon { flipTimes.append(warning) }
         }
 
         // Per-day prayer tables, so an entry that is on screen TOMORROW morning lists tomorrow's clock
@@ -174,6 +191,15 @@ struct PrayersProvider: TimelineProvider {
         for key in Settings.prayerOffsetKeys {
             let mirrored = store?.integer(forKey: key) ?? 0
             if extensionDefaults.integer(forKey: key) != mirrored {
+                extensionDefaults.set(mirrored, forKey: key)
+            }
+        }
+        // The "Custom Angles" method's angles, same mirror: the method LABEL arrives via
+        // `prayerCalculation` above, but without the angles behind it this process computed custom
+        // times with the 18/17 defaults. Absent key = user never touched them; leave the defaults.
+        for key in ["customFajrAngle", "customIshaAngle"] {
+            if let mirrored = store?.object(forKey: key) as? Double,
+               extensionDefaults.object(forKey: key) as? Double != mirrored {
                 extensionDefaults.set(mirrored, forKey: key)
             }
         }

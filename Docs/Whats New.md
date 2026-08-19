@@ -1,3 +1,24 @@
+# Version 2.6.3
+
+Three new adhan sounds, a progress profile with badges, the qiraat guide, and polish across the app and widgets.
+
+Al-Adhan:
+- Three new adhans: Serene, Aaqib Azeez, and a short Takbir alert tone.
+- Fixed: the fasting Live Activity now appears on the Lock Screen.
+
+Your Progress:
+- Prayer rings, streaks, perfect days, and a badge cabinet for prayer and dhikr.
+
+Islamic Tools:
+- Qiraat guide: biographies of the ten imams and twenty narrators.
+- Arabic Basics and guided dua sessions.
+- Select and copy text in articles.
+
+Widgets and Apple Watch:
+- Refinements across the widget gallery, the sky card, and the watch app, with Arabic rendered in the proper Quranic faces.
+
+Bug fixes and optimizations throughout.
+
 # Version 2.6.0
 
 A prayer tracker, on-device AI search, a living sky over your prayer times, an exportable prayer calendar, and a much deeper set of Islamic tools.

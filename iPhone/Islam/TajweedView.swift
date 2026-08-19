@@ -2,7 +2,6 @@ import SwiftUI
 
 struct TajweedFoundationsView: View {
     @ObservedObject var settings = Settings.shared
-    @State private var showTajweedLegend = false
 
     private let topics: [String] = [
         "Improving Your Recitation",
@@ -23,26 +22,6 @@ struct TajweedFoundationsView: View {
     var body: some View {
         List {
             Group {
-            Section("TAJWEED LEGEND") {
-                #if os(iOS)
-                Button {
-                    settings.hapticFeedback()
-                    showTajweedLegend = true
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Quick Reference Guide")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundColor(settings.accentColor.color)
-
-                        Text("Simple way to view basic Hafs an Asim Tajweed rules with colors")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                #endif
-            }
-
             Section("OVERVIEW") {
                 Text("Tajweed, Makharij, and Pronunciation")
                     .font(.headline)
@@ -139,6 +118,9 @@ struct TajweedFoundationsView: View {
                 }
             }
 
+            // No structured-lessons section here: the lessons feature (TajweedLessons.swift) plays
+            // Quranic examples through the Quran reader's player, a domain this app does not ship.
+
             Section("TAJWEED TOPICS") {
                 ForEach(topics, id: \.self) { topic in
                     NavigationLink(destination: LazyDestination { destinationView(for: topic) }) {
@@ -151,7 +133,7 @@ struct TajweedFoundationsView: View {
             }
             .themedListRowBackground()
         }
-        .applyConditionalListStyle()
+        .selectableArticleList()
         .navigationTitle("Tajweed Foundations")
     }
 
@@ -320,7 +302,7 @@ private struct TajweedImprovingRecitationView: View {
             }
             .themedListRowBackground()
         }
-        .applyConditionalListStyle()
+        .selectableArticleList()
         .navigationTitle("Improving Your Recitation")
     }
 }
@@ -380,7 +362,7 @@ private struct TajweedFoundationsTopicView: View {
             }
             .themedListRowBackground()
         }
-        .applyConditionalListStyle()
+        .selectableArticleList()
         .navigationTitle("Lip Movement")
     }
 }
@@ -433,7 +415,7 @@ private struct TajweedInMushafView: View {
 
                 VStack(alignment: .leading, spacing: 12) {
                     TajweedExampleRow(
-                        arabic: "مِنْ",
+                        arabic: "مِنۡ",
                         middle: "Nun has sukun",
                         trailing: "Pronounce clearly",
                         arabicFont: arabicFont
@@ -539,7 +521,7 @@ private struct TajweedInMushafView: View {
                     TajweedPairRow(arabic: "بًا", english: "ban", arabicFont: arabicHeadlineFont)
                     TajweedPairRow(arabic: "بٌ", english: "bun", arabicFont: arabicHeadlineFont)
                     TajweedPairRow(arabic: "بٍ", english: "bin", arabicFont: arabicHeadlineFont)
-                    TajweedPairRow(arabic: "قُرْءَانًا عَرَبِيًّا", english: "quraanan arabiyyan", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "قُرۡءَانًا عَرَبِيًّا", english: "quraanan arabiyyan", arabicFont: arabicHeadlineFont)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -590,9 +572,9 @@ private struct TajweedInMushafView: View {
 
             Section("A. SUKUN ON LAAM (QAMARIYYAH)") {
                 VStack(alignment: .leading, spacing: 10) {
-                    TajweedPairRow(arabic: "ٱلْقَمَر", english: "al-qamar", arabicFont: arabicHeadlineFont)
-                    TajweedPairRow(arabic: "ٱلْكِتَاب", english: "al-kitab", arabicFont: arabicHeadlineFont)
-                    TajweedPairRow(arabic: "ٱلْهُدَى", english: "al-huda", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "ٱلۡقَمَر", english: "al-qamar", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "ٱلۡكِتَاب", english: "al-kitab", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "ٱلۡهُدَى", english: "al-huda", arabicFont: arabicHeadlineFont)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -602,9 +584,9 @@ private struct TajweedInMushafView: View {
                     .font(.body)
 
                 VStack(alignment: .leading, spacing: 10) {
-                    TajweedPairRow(arabic: "ٱلشَّمْس", english: "ash-shams", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "ٱلشَّمۡس", english: "ash-shams", arabicFont: arabicHeadlineFont)
                     TajweedPairRow(arabic: "ٱلنَّاس", english: "an-nas", arabicFont: arabicHeadlineFont)
-                    TajweedPairRow(arabic: "ٱلرَّحْمَٰن", english: "ar-rahman", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "ٱلرَّحۡمَٰن", english: "ar-rahman", arabicFont: arabicHeadlineFont)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -614,7 +596,7 @@ private struct TajweedInMushafView: View {
             }
             .themedListRowBackground()
         }
-        .applyConditionalListStyle()
+        .selectableArticleList()
         .navigationTitle("Tajweed Hints in the Mushaf")
     }
 }
@@ -734,7 +716,7 @@ private struct TajweedMakharijView: View {
 
                 VStack(alignment: .leading, spacing: 12) {
                     TajweedPairRow(arabic: "أَحَد", english: "ahad", arabicFont: arabicHeadlineFont)
-                    TajweedPairRow(arabic: "نَعْبُدُ", english: "na'-bu-du", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "نَعۡبُدُ", english: "na'-bu-du", arabicFont: arabicHeadlineFont)
                     TajweedPairRow(arabic: "غَفُور", english: "ghafur", arabicFont: arabicHeadlineFont)
                     TajweedPairRow(arabic: "خَالِد", english: "khalid", arabicFont: arabicHeadlineFont)
                 }
@@ -782,7 +764,7 @@ private struct TajweedMakharijView: View {
                     .font(.subheadline.weight(.semibold))
 
                 VStack(alignment: .leading, spacing: 12) {
-                    TajweedPairRow(arabic: "قُلْ", english: "qul", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "قُلۡ", english: "qul", arabicFont: arabicHeadlineFont)
                     TajweedPairRow(arabic: "سَمِيع", english: "samee'", arabicFont: arabicHeadlineFont)
                     TajweedPairRow(arabic: "نُور", english: "nur", arabicFont: arabicHeadlineFont)
                     TajweedPairRow(arabic: "رَبِّ", english: "rabbi", arabicFont: arabicHeadlineFont)
@@ -827,7 +809,7 @@ private struct TajweedMakharijView: View {
 
                 VStack(alignment: .leading, spacing: 12) {
                     TajweedPairRow(arabic: "بَصِير", english: "basir", arabicFont: arabicHeadlineFont)
-                    TajweedPairRow(arabic: "أَمْر", english: "amr", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "أَمۡر", english: "amr", arabicFont: arabicHeadlineFont)
                     TajweedPairRow(arabic: "فِيهِ", english: "fihi", arabicFont: arabicHeadlineFont)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -858,7 +840,7 @@ private struct TajweedMakharijView: View {
             }
             .themedListRowBackground()
         }
-        .applyConditionalListStyle()
+        .selectableArticleList()
         .navigationTitle("Makhaarij")
     }
 }
@@ -944,10 +926,10 @@ private struct TajweedHeavyLightView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 12) {
-                    TajweedPairRow(arabic: "بِسْم", english: "bism", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "بِسۡم", english: "bism", arabicFont: arabicHeadlineFont)
                     TajweedPairRow(arabic: "نَعِيم", english: "na-'eem", arabicFont: arabicHeadlineFont)
                     TajweedPairRow(arabic: "سَبِيل", english: "sabil", arabicFont: arabicHeadlineFont)
-                    TajweedPairRow(arabic: "يَوْم", english: "yawm", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "يَوۡم", english: "yawm", arabicFont: arabicHeadlineFont)
                     TajweedPairRow(arabic: "فِيهِ", english: "fihi", arabicFont: arabicHeadlineFont)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -982,14 +964,14 @@ private struct TajweedHeavyLightView: View {
                 Text("Light Raa")
                     .font(.subheadline.weight(.semibold))
 
-                Text("Raa with kasrah (ـِ), or raa with sukoon preceded by an ORIGINAL kasrah, unless an isti'la letter with fatha/damma follows it in the same word (قِرْطَاس, مِرْصَاد), which makes it heavy again.")
+                Text("Raa with kasrah (ـِ), or raa with sukoon preceded by an ORIGINAL kasrah, unless an isti'la letter with fatha/damma follows it in the same word (قِرۡطَاس, مِرۡصَاد), which makes it heavy again.")
                     .font(.body)
                     .foregroundColor(.secondary)
 
                 VStack(alignment: .leading, spacing: 12) {
-                    TajweedPairRow(arabic: "فِرْعَوْن", english: "firawn", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "فِرۡعَوۡن", english: "firawn", arabicFont: arabicHeadlineFont)
                     TajweedPairRow(arabic: "رِجَال", english: "rijal", arabicFont: arabicHeadlineFont)
-                    TajweedPairRow(arabic: "شِرْعَة", english: "shirah", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "شِرۡعَة", english: "shirah", arabicFont: arabicHeadlineFont)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -1011,7 +993,7 @@ private struct TajweedHeavyLightView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     TajweedPairRow(arabic: "ٱللَّهُ", english: "Allahu", arabicFont: arabicHeadlineFont)
                     TajweedPairRow(arabic: "قَالَ ٱللَّهُ", english: "qala Allahu", arabicFont: arabicHeadlineFont)
-                    TajweedPairRow(arabic: "نَصْرُ ٱللَّهِ", english: "nasru Allahi", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "نَصۡرُ ٱللَّهِ", english: "nasru Allahi", arabicFont: arabicHeadlineFont)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -1056,7 +1038,7 @@ private struct TajweedHeavyLightView: View {
             }
             .themedListRowBackground()
         }
-        .applyConditionalListStyle()
+        .selectableArticleList()
         .navigationTitle("Heavy and Light")
     }
 }
@@ -1095,7 +1077,7 @@ private struct TajweedShamsQamarView: View {
                     .font(.subheadline.weight(.semibold))
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("The laam has a sukun (ٱلْ)")
+                    Text("The laam has a sukun (ٱلۡ)")
                     Text("The sound is al-")
                 }
                 .font(.body)
@@ -1111,11 +1093,11 @@ private struct TajweedShamsQamarView: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
 
                 VStack(alignment: .leading, spacing: 12) {
-                    TajweedPairRow(arabic: "ٱلْقَمَر", english: "al-qamar", arabicFont: arabicHeadlineFont)
-                    TajweedPairRow(arabic: "ٱلْكِتَاب", english: "al-kitab", arabicFont: arabicHeadlineFont)
-                    TajweedPairRow(arabic: "ٱلْحَقّ", english: "al-haqq", arabicFont: arabicHeadlineFont)
-                    TajweedPairRow(arabic: "ٱلْغَفُور", english: "al-ghafur", arabicFont: arabicHeadlineFont)
-                    TajweedPairRow(arabic: "ٱلْيَوْم", english: "al-yawm", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "ٱلۡقَمَر", english: "al-qamar", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "ٱلۡكِتَاب", english: "al-kitab", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "ٱلۡحَقّ", english: "al-haqq", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "ٱلۡغَفُور", english: "al-ghafur", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "ٱلۡيَوۡم", english: "al-yawm", arabicFont: arabicHeadlineFont)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -1153,11 +1135,11 @@ private struct TajweedShamsQamarView: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
 
                 VStack(alignment: .leading, spacing: 12) {
-                    TajweedPairRow(arabic: "ٱلشَّمْس", english: "ash-shams", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "ٱلشَّمۡس", english: "ash-shams", arabicFont: arabicHeadlineFont)
                     TajweedPairRow(arabic: "ٱلنَّاس", english: "an-nas", arabicFont: arabicHeadlineFont)
-                    TajweedPairRow(arabic: "ٱلرَّحْمَٰن", english: "ar-rahman", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "ٱلرَّحۡمَٰن", english: "ar-rahman", arabicFont: arabicHeadlineFont)
                     TajweedPairRow(arabic: "ٱلصِّرَاط", english: "as-sirat", arabicFont: arabicHeadlineFont)
-                    TajweedPairRow(arabic: "ٱلتَّوْبَة", english: "at-tawbah", arabicFont: arabicHeadlineFont)
+                    TajweedPairRow(arabic: "ٱلتَّوۡبَة", english: "at-tawbah", arabicFont: arabicHeadlineFont)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -1183,7 +1165,7 @@ private struct TajweedShamsQamarView: View {
             }
             .themedListRowBackground()
         }
-        .applyConditionalListStyle()
+        .selectableArticleList()
         .navigationTitle("Shams and Qamar")
     }
 }

@@ -16,7 +16,6 @@ struct PrayerList: View {
     @State private var lastActiveDay = Calendar.current.startOfDay(for: Date())
 
     @State private var expandedPrayerKey: String?
-    @State private var fullPrayers = false
     /// Presents Adhan settings landed on the Traveling Mode screen - the footer's exit from Qasr mode.
     @State private var showTravelingModeSettings = false
     @State private var animatingBellPrayerName: String?
@@ -93,6 +92,11 @@ struct PrayerList: View {
     private func mergedWithOptional(_ base: [Prayer], for date: Date) -> [Prayer] {
         settings.prayersIncludingOptional(base, for: date)
     }
+
+    /// "View Full Prayers" while traveling. Settings-backed (not view `@State`) so the COUNTDOWN and the
+    /// sky card's current/next columns follow the same choice - `prayerBoundaryTimeline` reads it. Only
+    /// meaningful while traveling; the guards below reset it whenever traveling mode flips.
+    private var fullPrayers: Bool { settings.travelingMode && settings.travelingShowFullPrayers }
 
     /// True when the user has picked a day other than today. Derived from `selectedDate` so the
     /// comparison UI stays in sync without any imperative state to keep updated.
@@ -402,7 +406,7 @@ struct PrayerList: View {
         }
         .onChange(of: settings.travelingMode) { _ in
             withAnimation {
-                fullPrayers = false
+                settings.travelingShowFullPrayers = false
             }
         }
     }
@@ -526,11 +530,14 @@ struct PrayerList: View {
         // Tighter on the watch: the icon shares the name's line instead of taking one of its own, and the
         // padding comes down - that's what lets six prayers fit a screen at a readable size.
         let columnCount = 2
-        let tileSpacing: CGFloat = 6
+        let tileSpacing: CGFloat = 5
         let tileHorizontalPadding: CGFloat = 7
-        let tileVerticalPadding: CGFloat = 6
+        let tileVerticalPadding: CGFloat = 5
         #else
-        let columnCount = settings.travelingMode ? 2 : 3
+        // Keyed on what is actually RENDERED: the combined Qasr set (4 rows) reads best two-up, but
+        // "View Full Prayers" restores the six - which want the normal three columns, not two rows of
+        // three stretched tiles with a hole (user rule: full prayers = grid of 3).
+        let columnCount = (settings.travelingMode && !fullPrayers) ? 2 : 3
         let tileSpacing: CGFloat = 8
         let tileHorizontalPadding: CGFloat = 8
         let tileVerticalPadding: CGFloat = 8
@@ -545,21 +552,27 @@ struct PrayerList: View {
                 let color: Color = isComparisonBaseline ? .secondary : (highlightsCurrent ? prayerColor(for: prayer, in: prayers) : .primary)
                 let isCurrent = highlightsCurrent && !isComparisonBaseline && isCurrentPrayer(prayer)
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 2) {
                     #if os(watchOS)
-                    HStack(spacing: 4) {
+                    HStack(spacing: 3) {
                         Image(systemName: prayer.image)
-                            .font(.caption2)
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundColor(color)
 
+                        // The name owns the line: a fixed-size icon plus layoutPriority keeps a long
+                        // name ("Shurooq") from being the one tile that scales to a sliver while its
+                        // neighbors render full size. 0.8 is a trim, not a shrink.
                         Text(prayer.compactDisplayName)
                             .font(.caption.weight(.semibold))
                             .foregroundColor(color)
+                            .minimumScaleFactor(0.8)
+                            .layoutPriority(1)
                     }
 
                     Text(prayer.time, style: .time)
                         .font(.caption.monospacedDigit())
                         .foregroundColor(color)
+                        .minimumScaleFactor(0.8)
                     #else
                     HStack(alignment: .top) {
                         Image(systemName: prayer.image)
@@ -605,8 +618,15 @@ struct PrayerList: View {
         }
         .lineLimit(1)
         .minimumScaleFactor(0.5)
+        #if os(watchOS)
+        // The tiles draw their own glass; the List's default row card behind them (plus its side
+        // insets) squeezed the grid and read as one chopped slab. Clear it and give the tiles the
+        // full row width.
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
+        #endif
         .onChange(of: settings.travelingMode) { _ in
-            withAnimation { fullPrayers = false }
+            withAnimation { settings.travelingShowFullPrayers = false }
         }
 
         expandedPrayerDetail(for: prayers)
@@ -647,7 +667,7 @@ struct PrayerList: View {
 
                 HStack(spacing: 10) {
                     footerActionButton(fullPrayers ? "View Qasr Prayers" : "View Full Prayers") {
-                        fullPrayers.toggle()
+                        withAnimation { settings.travelingShowFullPrayers.toggle() }
                     }
 
                     // The footer explains Qasr but gave no way OUT of it: turning traveling mode off meant
@@ -660,7 +680,7 @@ struct PrayerList: View {
 
                 #if os(watchOS)
                 footerActionButton(fullPrayers ? "View Qasr Prayers" : "View Full Prayers") {
-                    fullPrayers.toggle()
+                    withAnimation { settings.travelingShowFullPrayers.toggle() }
                 }
 
                 travelingModeDescription
@@ -671,6 +691,7 @@ struct PrayerList: View {
                 NavigationView {
                     SettingsAdhanView(showNotifications: false, presentedAsSheet: true, openTravelingMode: true)
                 }
+                .navigationViewStyle(.stack)
                 .smallMediumSheetPresentation()
             }
             #endif
@@ -718,7 +739,20 @@ struct PrayerList: View {
     }
 
     private var travelingModeDescription: some View {
-        Text("Traveling mode is on. If you are traveling more than 48 mi, then you can pray Qasr, where you combine prayers. You can customize and learn more in settings.")
+        // Names the HOME CITY the 48-mile rule measures from, and points at the exact control that
+        // changes it - "customize in settings" alone left the reader hunting (user rule).
+        let homeCity = settings.homeLocation?.city.trimmingCharacters(in: .whitespacesAndNewlines)
+        #if os(watchOS)
+        // No Travel Settings button on the watch - the pointer would dangle.
+        let homeSentence = (homeCity?.isEmpty == false)
+            ? "Your home city is \(homeCity!) - you can change it in the iPhone app's Travel Settings."
+            : "You can set your home city in the iPhone app's Travel Settings."
+        #else
+        let homeSentence = (homeCity?.isEmpty == false)
+            ? "Your home city is \(homeCity!) - you can change it by tapping Travel Settings below."
+            : "You can set your home city by tapping Travel Settings below."
+        #endif
+        return Text("Traveling mode is on. If you are traveling more than 48 mi from home, you can pray Qasr, where you shorten and combine prayers. \(homeSentence)")
             .font(.caption)
             .foregroundColor(.secondary)
             .multilineTextAlignment(.leading)
@@ -822,8 +856,17 @@ struct PrayerList: View {
         if let index = sorted.firstIndex(where: { $0.stableDisplayID == prayer.stableDisplayID }),
            index + 1 < sorted.count {
             next = sorted[index + 1]
-        } else if let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: prayer.time) {
-            next = settings.getPrayerTimes(for: tomorrow)?.first { $0.nameTransliteration == "Fajr" }
+        } else {
+            // The last entry rolls to the NEXT Fajr after this time. For post-midnight optional times
+            // (Last Third ~3 AM, a late Islamic Midnight) that is the Fajr of this very civil day, an
+            // hour or two later - "+1 day" unconditionally fetched the day after's Fajr and reported a
+            // ~25-hour window.
+            let sameDayFajr = settings.getPrayerTimes(for: prayer.time)?.first { $0.nameTransliteration == "Fajr" }
+            if let sameDayFajr, sameDayFajr.time > prayer.time {
+                next = sameDayFajr
+            } else if let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: prayer.time) {
+                next = settings.getPrayerTimes(for: tomorrow)?.first { $0.nameTransliteration == "Fajr" }
+            }
         }
 
         guard let next, next.time > prayer.time else { return nil }

@@ -163,6 +163,7 @@ struct MapView: View {
                 }
                 .preferredColorScheme(scheme)
         }
+        .navigationViewStyle(.stack)
         .accentColor(settings.accentColor.color)
         .tint(settings.accentColor.color)
     }
@@ -455,7 +456,6 @@ private struct SearchOverlay: View {
     private var searchHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
             SearchBar(text: $searchText.animation(.easeInOut))
-                .padding(-8)
 
             if !searchText.isEmpty {
                 Text("\(cityItems.count) match\(cityItems.count == 1 ? "" : "es") found")

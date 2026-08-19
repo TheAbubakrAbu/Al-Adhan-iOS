@@ -5,6 +5,7 @@ import Network
 import UserNotifications
 import WidgetKit
 import WatchConnectivity
+import os
 
 // [Al-Adhan] This entire file is the Al-Adhan domain - copy it into that companion app whole,
 // and delete it from companions that do not ship this domain.
@@ -24,13 +25,27 @@ extension Settings {
         // A 3.6-second chime, not a call to prayer - for being told without being called. All three of its
         // clips are the same recording, because there is nothing to cut down.
         .init(id: "echo", title: "Echo"),
+        // A 2.6-second SINGLE takbir ("Allahu Akbar"), the second tone-not-adhan option: instantly
+        // recognizable as the prayer app without being a full call. Like echo, all three clips are the
+        // same recording. Cut from the opening of the Aaqib Azeez adhan below, ending on the first
+        // takbir's decay (the RMS dip before the second "Allahu" - the pair is sung in one breath, so
+        // there is no silence to cut at; a prior CC0 field recording was dropped because its second
+        // takbir was clipped in the source). Mastered to match the adhan clips' loudness, hotter than
+        // echo, for the "tones are too quiet" complaint. CC BY-SA 4.0, see CREDITS.md.
+        .init(id: "takbir", title: "Takbir"),
 
         .init(id: "egypt", title: "Egypt"),
         .init(id: "makkah", title: "Makkah"),
         .init(id: "madina", title: "Madina"),
         .init(id: "alaqsa", title: "Al-Aqsa"),
         .init(id: "alaqsa-2", title: "Al-Aqsa 2"),
+        // Clean solo-voice adhan, CC0 via Wikimedia Commons ("Beautiful adhan" by Adam-synagda) - the
+        // uploader is not the muadhin's stage name, so it's titled by style, not by name. See CREDITS.md.
+        .init(id: "serene", title: "Serene"),
 
+        // Adhan by Aaqib Azeez, CC BY-SA 4.0 via Wikimedia Commons (see CREDITS.md). Its -30 cut ends on a
+        // natural phrase boundary at ~27.7s rather than a mid-phrase fade.
+        .init(id: "aaqib", title: "Aaqib Azeez"),
         .init(id: "abdulbaset", title: "Abdul Baset"),
         .init(id: "abdulghaffar", title: "Abdul Ghaffar"),
         .init(id: "al-qatami", title: "Al-Qatami"),
@@ -48,7 +63,7 @@ extension Settings {
     /// The alert tone plays for prenotifications, the optional times, and prayers whose adhan is
     /// switched off - exactly the moments an adhan would defeat the point.
     static let supportedAlertTones: [AdhanSoundOption] = supportedAdhanSounds.filter {
-        $0.id == "default" || $0.id == "echo"
+        $0.id == "default" || $0.id == "echo" || $0.id == "takbir"
     }
     static let supportedAlertToneIDs = Set(supportedAlertTones.map(\.id))
 
@@ -291,6 +306,12 @@ extension Settings {
         let hanafiMadhab: Bool
         let highLatitudeRule: String
         let offsets: [Int]
+        /// The angles behind "Custom Angles" - in the KEY, not just handled by didSet invalidation,
+        /// because write paths that bypass the didSet (watch-sync apply writes raw defaults) would
+        /// otherwise serve stale times for already-computed days. Same bug class as the Hijri offset.
+        let customAngles: [Double]
+        /// In the key because the Umm al-Qura Ramadan Isha extension consults the ADJUSTED hijri month.
+        let hijriOffset: Int
     }
 
     private static var rawPrayerCache: [RawPrayerCacheKey: [Prayer]] = [:]
@@ -526,7 +547,10 @@ extension Settings {
             // Existing user with a location but no home yet: adopt the current location as home.
             seedHomeLocationIfNeeded()
             if shouldRecomputePrayers {
-                fetchPrayerTimes(force: false)
+                // Forced: the non-forced fetch keys staleness on (city label, day), so a real move that
+                // KEEPS the label - 20 km across one metro - never recomputed, and times/adhans kept the
+                // old coordinate all day. The thresholds above already gate how often this can fire.
+                fetchPrayerTimes(force: true)
             }
         }
     }
@@ -705,7 +729,7 @@ extension Settings {
     /// the old name would be wrong, raw coordinates are shown instead of a stale/"fake" city.
     private func cityFallback(latitude: Double, longitude: Double) -> String {
         if let cur = currentLocation, !cur.city.contains("(") {
-            // Measured from where the name was actually resolved, not from the last (possibly sharpened) fix -
+            // Measured from where the name was actually resolved, not from the last (possibly sharpened) fix - 
             // otherwise a chain of small offline moves drags the reference along with you and the name never
             // expires. Falls back to the saved coordinate for anyone upgrading without an anchor yet.
             let anchor = Self.cityAnchor ?? CLLocation(latitude: cur.latitude, longitude: cur.longitude)
@@ -923,11 +947,47 @@ extension Settings {
         return PrayerCalculationCatalog.muslimWorldLeagueID
     }
 
+    /// Whether THIS device may auto-switch `prayerCalculation` from the detected region.
+    ///
+    /// Exactly the `ownsTravelingModeAutoCheck` rule, and for exactly the same reason. Both devices can
+    /// derive this one - unlike traveling mode it needs no home location, only a geocode - so a **paired**
+    /// watch geocodes its own position, reaches its own verdict, and writes its own `prayerCalculation`.
+    /// That verdict then travels back and argues with the phone's: it clobbers a manual Override, and where
+    /// it lands on a method the phone doesn't hold, the phone's next fetch re-detects a "change" and
+    /// re-raises the confirmation card the user already answered - the "Calculation Method Changed card
+    /// keeps coming back" bug, which is the traveling-mode bug wearing a different hat.
+    ///
+    /// The iPhone is the authority and syncs the resulting method to the watch (one-way; see
+    /// `watchSyncSnapshot`). A **standalone** watch (no companion iPhone app) has no phone to defer to and
+    /// keeps the check. Before WCSession activation resolves the answer isn't known yet - treat that as
+    /// "not mine": skipping one early check is harmless (the next fetch re-runs it), overwriting the
+    /// phone's method is not.
+    var ownsAutomaticCalculationCheck: Bool {
+        #if os(watchOS)
+        // Queried directly (rather than via WatchConnectivityManager) so this also compiles in targets that
+        // don't include the manager source, e.g. the watch Complication extension.
+        let session = WCSession.default
+        return session.activationState == .activated && !session.isCompanionAppInstalled
+        #else
+        return true
+        #endif
+    }
+
     /// Returns `true` if it switched `prayerCalculation`, so the enclosing fetch recomputes the prayer list.
     @discardableResult
     func checkAutomaticPrayerCalculation() -> Bool {
-        guard Bundle.main.bundleIdentifier?.contains("Widget") != true,
-              calculationAutomatic,
+        guard Bundle.main.bundleIdentifier?.contains("Widget") != true else { return false }
+
+        guard ownsAutomaticCalculationCheck else {
+            // A paired watch defers to the phone, same as `checkIfTraveling`. Any standing auto-change flag
+            // here is a leftover from a build where the watch still ran this check itself (or from before
+            // pairing): presenting its dialog would offer buttons that flip the just-synced method right
+            // back, so retire the flag instead of showing it.
+            if calculationAutoChanged { calculationAutoChanged = false }
+            return false
+        }
+
+        guard calculationAutomatic,
               let currentLocation = currentLocation,
               currentLocation.latitude != 1000,
               currentLocation.longitude != 1000
@@ -953,6 +1013,15 @@ extension Settings {
             return false
         }
 
+        // Has the user already answered the card for THIS detection - same region, same recommendation? Both
+        // Confirm and Override are final answers, so asking again is never right; whatever moved
+        // `prayerCalculation` off their answer (a peer's copy of it, a restore, a method that was retired
+        // from the catalogue), re-raising the card is how the user experiences it as a bug. The method still
+        // switches to the region's - only the prompt, and its announcement, are retired.
+        let alreadyAnswered = !countryCode.isEmpty
+            && calculationAutoAnsweredCountryCode == countryCode
+            && calculationAutoAnsweredMethod == detectedMethod
+
         let currentParams = calculationParameters(forStoredLabel: previousMethod)
         withAnimation {
             prayerCalculation = detectedMethod
@@ -961,12 +1030,12 @@ extension Settings {
         calculationAutoPreviousMethod = previousMethod
         calculationAutoDetectedMethod = detectedMethod
         calculationAutoDetectedCountryCode = countryCode
-        calculationAutoChanged = true
+        calculationAutoChanged = !alreadyAnswered
 
         // The method switched either way, but the prayer TIMES only actually move if the angles differ. When they
         // don't (Custom sitting on the MWL angles, or two catalogue methods that agree), skip the push
         // notification - it would announce a change to times that are identical to the ones already on screen.
-        guard detectedParams != currentParams else { return true }
+        guard !alreadyAnswered, detectedParams != currentParams else { return true }
 
         #if os(iOS)
         // Same rate limit as the traveling-mode announcement: the method itself still switches; only the
@@ -1165,7 +1234,9 @@ extension Settings {
     func updateDates() {
         let now = Date()
         let effectiveDate = effectiveHijriReferenceDate(now: now)
-        if let h = hijriDate, Self.gregorian.isDate(h.date, inSameDayAs: effectiveDate) {
+        // Same-day AND same-offset: a cache computed under a different Hijri adjustment is stale
+        // even within the day (the adjustment stepper must repaint immediately).
+        if let h = hijriDate, Self.gregorian.isDate(h.date, inSameDayAs: effectiveDate), h.offset == hijriOffset {
             return
         }
 
@@ -1174,7 +1245,7 @@ extension Settings {
         let english = Self.hijriFormatterEN.string(from: base)
 
         withAnimation {
-            hijriDate = HijriDate(english: english, arabic: arabic, date: effectiveDate)
+            hijriDate = HijriDate(english: english, arabic: arabic, date: effectiveDate, offset: hijriOffset)
         }
     }
     
@@ -1188,8 +1259,11 @@ extension Settings {
                 .custom(fajrAngle: customFajrAngle, ishaAngle: customIshaAngle)
                 .parameters
         }
-        guard let method = PrayerCalculationCatalog.method(id: id) else {
-            return PrayerCalculationCatalog.method(id: PrayerCalculationCatalog.muslimWorldLeagueID)!.parameters
+        // Double fallback: an unknown stored label falls to Muslim World League; if THAT entry ever
+        // leaves the catalog, standard 18/17 angles - never a trap on a settings string.
+        guard let method = PrayerCalculationCatalog.method(id: id)
+                ?? PrayerCalculationCatalog.method(id: PrayerCalculationCatalog.muslimWorldLeagueID) else {
+            return PrayerCalculationCatalog.custom(fajrAngle: 18, ishaAngle: 17).parameters
         }
         return method.parameters
     }
@@ -1225,7 +1299,10 @@ extension Settings {
     
     @inline(__always)
     private func prayer(from key: String, time: Date) -> Prayer {
-        let p = Self.prayerProtos[key]!
+        // An unknown key is a programmer error (every caller passes a literal that exists in the
+        // dict above), but a future misspelling must degrade to a generic row, not take the app down.
+        let p = Self.prayerProtos[key]
+            ?? Proto(ar: key, tr: key, en: key, img: "moon", rakah: "0", sunnahB: "0", sunnahA: "0")
         return Prayer(
             nameArabic: p.ar,
             nameTransliteration: p.tr,
@@ -1267,7 +1344,7 @@ extension Settings {
         }
         
         return _filterTravelingMode(rawPrayers)
-    }
+    }    
 
     /// Optimized getter that computes both normal and full prayer lists in a single calculation pass
     func getPrayerTimesNormalAndFull(for date: Date) -> (normal: [Prayer], full: [Prayer])? {
@@ -1278,7 +1355,7 @@ extension Settings {
         let normalList = travelingMode ? _filterTravelingMode(rawPrayers) : rawPrayers
         
         return (normal: normalList, full: fullList)
-    }
+    }    
 
     func prayersIncludingOptional(_ base: [Prayer], for date: Date) -> [Prayer] {
         let optional = getOptionalPrayers(for: date)
@@ -1315,7 +1392,9 @@ extension Settings {
             calculation: method,
             hanafiMadhab: hanafiMadhab,
             highLatitudeRule: highLatitudeRule,
-            offsets: [offsetFajr, offsetSunrise, offsetDhuhr, offsetAsr, offsetMaghrib, offsetIsha]
+            offsets: [offsetFajr, offsetSunrise, offsetDhuhr, offsetAsr, offsetMaghrib, offsetIsha],
+            customAngles: [customFajrAngle, customIshaAngle],
+            hijriOffset: hijriOffset
         )
 
         if let cached = Self.rawPrayerCache[cacheKey] {
@@ -1329,9 +1408,13 @@ extension Settings {
         params.highLatitudeRule = resolvedHighLatitudeRule(at: coordinates)
 
         // Umm Al-Qura delays Isha by 30 minutes throughout Ramadan. The reference date is pushed a day forward
-        // because taraweeh on the night *before* 1 Ramadan already follows the Ramadan timing.
+        // because taraweeh on the night *before* 1 Ramadan already follows the Ramadan timing. The user's
+        // Hijri offset applies here too - "is it Ramadan" must agree with the calendar the app displays
+        // (the fasting Live Activity already applies it; these two used to disagree by the offset).
         if usesUmmAlQuraRamadanExtension(method) {
-            let hijriMonth = Self.hijriCalendarAR.dateComponents([.month], from: date.addingTimeInterval(86_400)).month
+            let reference = date.addingTimeInterval(86_400)
+            let adjustedReference = Self.hijriCalendarAR.date(byAdding: .day, value: hijriOffset, to: reference) ?? reference
+            let hijriMonth = Self.hijriCalendarAR.dateComponents([.month], from: adjustedReference).month
             if hijriMonth == 9 {
                 params.adjustments.isha += 30
             }
@@ -1540,7 +1623,6 @@ extension Settings {
                     await updateCity(latitude: loc.latitude, longitude: loc.longitude)
                     if Self.isAppProcess,
                        runAutoChecks,
-                       calculationAutomatic,
                        checkAutomaticPrayerCalculation() {
                         // The method changed after this fetch already computed, so recompute with it. Checks
                         // stay off: the switch was just made from a fresh placemark, nothing to re-detect.
@@ -1575,9 +1657,12 @@ extension Settings {
             if checkIfTraveling() {
                 autoStateChanged = true
             }
+            // No `calculationAutomatic` precondition either, for the same reason as above: the check
+            // re-guards it itself, and on a paired watch its non-owner path also retires stale auto-change
+            // flags - it must run even when that precondition is false.
             // Coordinate placeholder city means ISO country may still be wrong or empty; geocode runs
             // asynchronously above - the check reruns from that Task once the placemark is known.
-            if calculationAutomatic, !loc.city.contains("("), checkAutomaticPrayerCalculation() {
+            if !loc.city.contains("("), checkAutomaticPrayerCalculation() {
                 autoStateChanged = true
             }
         }
@@ -1660,13 +1745,16 @@ extension Settings {
     func prayerBoundaryTimeline(around now: Date = Date()) -> [Prayer] {
         guard let prayerObj = prayers, !prayerObj.prayers.isEmpty else { return [] }
 
+        // "View Full Prayers" while traveling: the countdown and current/next follow the UNCOMBINED
+        // five, so passing Asr time rolls the current prayer to Asr instead of holding "Dhuhr/Asr".
+        let useFullPrayers = travelingMode && travelingShowFullPrayers
         let calendar = Calendar.current
         return [-1, 0, 1]
             .compactMap { calendar.date(byAdding: .day, value: $0, to: now) }
             .flatMap { date -> [Prayer] in
                 let base = calendar.isDate(date, inSameDayAs: prayerObj.day)
-                    ? prayerObj.prayers
-                    : (getPrayerTimes(for: date) ?? [])
+                    ? (useFullPrayers ? prayerObj.fullPrayers : prayerObj.prayers)
+                    : (getPrayerTimes(for: date, fullPrayers: useFullPrayers) ?? [])
                 return prayersIncludingOptional(base, for: date)
             }
             .sorted { $0.time < $1.time }
@@ -1821,25 +1909,15 @@ extension Settings {
             self?.schedulePrayerTimeNotifications()
         }
         pendingNotificationScheduleWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
-    }
-
-    /// Reload widget timelines, coalescing the launch burst the same way as `scheduleNotifications`.
-    func reloadWidgets(deferred: Bool) {
-        // See `scheduleNotifications`: a widget must not reload widget timelines - that is a self-reload loop.
-        guard Settings.isAppProcess else { return }
-        pendingWidgetReloadWorkItem?.cancel()
-        pendingWidgetReloadWorkItem = nil
-        guard deferred else {
-            WidgetCenter.shared.reloadAllTimelines()
-            return
-        }
-        let work = DispatchWorkItem { [weak self] in
-            self?.pendingWidgetReloadWorkItem = nil
-            WidgetCenter.shared.reloadAllTimelines()
-        }
-        pendingWidgetReloadWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+        // Under the launch cover, push the (up to 60-request) scheduling pass past the reveal: it
+        // used to land 0.35s after the launch `fetchPrayerTimes`, i.e. in the middle of the
+        // under-cover warm the launch screen waits on. The requests are for future prayer times -
+        // a few seconds' delay changes nothing about when they fire. Off-main callers (there are
+        // none today; the compute path asserts main) keep the old 0.35s rather than trap in
+        // `assumeIsolated`.
+        let revealed = Thread.isMainThread ? MainActor.assumeIsolated({ AppReveal.revealed }) : true
+        let delay: TimeInterval = revealed ? 0.35 : 3.0
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     /// Static lookup table
@@ -1857,6 +1935,15 @@ extension Settings {
         "Islamic Midnight": .init(enabled: \.notificationIslamicMidnight, preMinutes: \.preNotificationIslamicMidnight, nagging: \.naggingIslamicMidnight),
         "Last Third":    .init(enabled: \.notificationLastThird, preMinutes: \.preNotificationLastThird, nagging: \.naggingLastThird)
     ]
+
+    /// The identifier namespaces this scheduler OWNS and may prune: its prayer requests
+    /// ("<name>-<minutes>-Y-M-D", one prefix per `notifTable` name), Hijri-event reminders ("Event-")
+    /// and refresh nags ("RefreshReminder-"). Every other pending identifier belongs to another
+    /// feature and must be left alone - the blanket "not in desiredIDs → stale" prune used to delete
+    /// the Quran planner's daily reminder on every prayer reschedule (i.e. every launch), because the
+    /// planner only re-adds it when its own settings change.
+    private static let ownedNotificationIDPrefixes: [String] =
+        notifTable.keys.map { "\($0)-" } + ["Event-", "RefreshReminder-"]
 
     /// Pre‑computes the full list of minutes‑before offsets for a prayer.
     /// The distinct minutes-before offsets a prayer should fire at. Deduplicated: a prenotification of 15
@@ -1977,18 +2064,27 @@ extension Settings {
 
         var adhanRequests: [(request: UNNotificationRequest, date: Date)] = []
         var reminderRequests: [(request: UNNotificationRequest, date: Date)] = []
+        // Days past the near window, collected separately so they can only ever spend LEFTOVER budget:
+        // the near window's reminders and nag cascades always win over a day-10 adhan, but a day-10 adhan
+        // beats an empty slot. This is what keeps notifications alive for a user who doesn't open the app
+        // (and whose background refresh iOS never grants, e.g. after a force-quit) for a week or more -
+        // the schedule used to go silent after 4 days.
+        var extendedAdhanRequests: [(request: UNNotificationRequest, date: Date)] = []
+        var extendedReminderRequests: [(request: UNNotificationRequest, date: Date)] = []
 
         // Prayer notifications need a resolved location + computed prayer times. Hijri-event reminders and
         // refresh nags below do NOT, so they're collected regardless of location - date notifications work
         // even before (or without) a location fix, instead of being silently skipped by an early return.
         let hasPrayers = currentLocation?.city != nil && prayers != nil
         if let city = currentLocation?.city, let prayerObj = prayers {
-            func collectPrayer(_ prayer: Prayer, _ minutes: Int?) {
+            func collectPrayer(_ prayer: Prayer, _ minutes: Int?, extended: Bool = false) {
                 guard let built = makePrayerNotificationRequest(for: prayer, preNotificationTime: minutes, city: city) else { return }
                 if built.isAdhan {
-                    adhanRequests.append((built.request, built.date))
+                    extended ? extendedAdhanRequests.append((built.request, built.date))
+                             : adhanRequests.append((built.request, built.date))
                 } else {
-                    reminderRequests.append((built.request, built.date))
+                    extended ? extendedReminderRequests.append((built.request, built.date))
+                             : reminderRequests.append((built.request, built.date))
                 }
             }
 
@@ -2001,18 +2097,24 @@ extension Settings {
                 }
             }
 
+            // The near window keeps its full fidelity (pre-reminders + nag cascades); nagging mode stays
+            // at 1 day because its cascades are budget-hungry and go stale as tracker answers land.
             let futureDays = naggingMode ? 1 : 3
-            if futureDays > 0 {
-                for dayOffset in 1...futureDays {
-                    let date = Calendar.current.date(byAdding: .day, value: dayOffset, to: prayerObj.day) ?? Date()
-                    guard let list = getPrayerTimes(for: date) else { continue }
-                    let dayList = prayersIncludingOptional(list, for: date)
-                    for prayer in dayList {
-                        guard let prefs = Self.notifTable[prayer.nameTransliteration] else { continue }
-                        let includeNags = !nagCascadeIsAnswered(for: prayer, in: dayList, on: date)
-                        for minutes in offsets(for: prefs, includeNags: includeNags) {
-                            collectPrayer(prayer, minutes == 0 ? nil : minutes)
-                        }
+            // Beyond it, collect at-time notifications out to two weeks. Times that far ahead are still
+            // exact - they're computed locally per date for the stored location - and any location change
+            // reschedules everything anyway. No cascades out there: a cascade's premise (yesterday's
+            // tracker answer) is unknowable that far ahead.
+            let extendedHorizonDays = 13
+            for dayOffset in 1...extendedHorizonDays {
+                let extended = dayOffset > futureDays
+                let date = Calendar.current.date(byAdding: .day, value: dayOffset, to: prayerObj.day) ?? Date()
+                guard let list = getPrayerTimes(for: date) else { continue }
+                let dayList = prayersIncludingOptional(list, for: date)
+                for prayer in dayList {
+                    guard let prefs = Self.notifTable[prayer.nameTransliteration] else { continue }
+                    let includeNags = !extended && !nagCascadeIsAnswered(for: prayer, in: dayList, on: date)
+                    for minutes in offsets(for: prefs, includeNags: includeNags) {
+                        collectPrayer(prayer, minutes == 0 ? nil : minutes, extended: extended)
                     }
                 }
             }
@@ -2031,20 +2133,57 @@ extension Settings {
         if let built = makeRefreshNagRequest(inDays: 3) { nagRequests.append(built) }
 
         // Add in priority order, soonest-first within each tier, capped under iOS's 64 limit:
-        //   1. at-time adhan (the actual sound) - must never be dropped
+        //   1. near-window at-time adhan (the actual sound) - must never be dropped
         //   2. refresh nags - keep the rolling schedule alive so future days get rescheduled
         //   3. special-event reminders
-        //   4. pre-/nagging reminders - fill whatever budget remains
+        //   4. near-window pre-/nagging reminders
+        //   5. extended-window at-time adhans - fill leftover budget out to the horizon
+        //   6. end-of-coverage nags (slots reserved in 5) - "open the app" lands right before the
+        //      schedule would actually run dry, not while adhans are still flowing
+        //   7. extended-window pre-reminders - whatever is left
         var finalRequests: [UNNotificationRequest] = []
-        func appendCapped(_ items: [(request: UNNotificationRequest, date: Date)]) {
-            for item in items.sorted(by: { $0.date < $1.date }) where finalRequests.count < maxPending {
+        var latestAdhanFireDate: Date?
+        func appendCapped(
+            _ items: [(request: UNNotificationRequest, date: Date)],
+            reserving reserve: Int = 0,
+            trackAdhanCoverage: Bool = false
+        ) {
+            for item in items.sorted(by: { $0.date < $1.date }) where finalRequests.count < maxPending - reserve {
                 finalRequests.append(item.request)
+                if trackAdhanCoverage {
+                    latestAdhanFireDate = max(latestAdhanFireDate ?? .distantPast, item.date)
+                }
             }
         }
-        appendCapped(adhanRequests)
+        appendCapped(adhanRequests, trackAdhanCoverage: true)
         appendCapped(nagRequests)
         appendCapped(eventRequests)
         appendCapped(reminderRequests)
+        appendCapped(extendedAdhanRequests, reserving: 2, trackAdhanCoverage: true)
+
+        // The fixed +2/+3 nags above cover the "background refresh is dead AND the app stays closed"
+        // case early; these two cover the schedule's true horizon. Only when coverage actually extends
+        // past the fixed nags - otherwise the ids collide and the slot is wasted.
+        if let latest = latestAdhanFireDate {
+            let cal = Calendar.current
+            let endOffset = cal.dateComponents(
+                [.day],
+                from: cal.startOfDay(for: Date()),
+                to: cal.startOfDay(for: latest)
+            ).day ?? 0
+            if endOffset > 3 {
+                var endNags: [(request: UNNotificationRequest, date: Date)] = []
+                for offset in [endOffset - 1, endOffset] where offset > 3 {
+                    if let built = makeRefreshNagRequest(inDays: offset) { endNags.append(built) }
+                }
+                appendCapped(endNags)
+            }
+        }
+        appendCapped(extendedReminderRequests)
+
+        #if DEBUG
+        logger.debug("Prayer schedule: \(finalRequests.count)/\(maxPending) requests, adhan coverage through \(latestAdhanFireDate.map { $0.formatted() } ?? "none")")
+        #endif
 
         // Incremental refresh instead of wiping everything first: adding a request with an existing
         // identifier replaces it in place (all our identifiers are stable), so unchanged notifications are
@@ -2060,13 +2199,12 @@ extension Settings {
         center.getPendingNotificationRequests { pending in
             let stale = pending.map(\.identifier).filter { id in
                 guard !desiredIDs.contains(id) else { return false }
-                // Never prune the one-shot informational alerts (traveling-mode on/off, auto-calculation
-                // change). They are scheduled by `checkIfTraveling` / `checkAutomaticPrayerCalculation` with
-                // their own fixed IDs and a ~1s trigger, so they are always "pending" for about a second and
-                // are never part of `desiredIDs`. Because those very state changes trigger this reschedule,
-                // pruning them here would delete the alert before it is ever delivered - which is exactly why
-                // the "traveling mode turned on/off" notification never appeared.
-                if id == Self.travelingNotificationId || id == Self.calculationNotificationId { return false }
+                // Only identifiers in this scheduler's own namespaces are candidates. This is what spares
+                // the one-shot traveling/calculation alerts (scheduled with a ~1s trigger by the very
+                // state changes that trigger this reschedule - pruning them deleted the alert before
+                // delivery) and every other feature's notifications, like the Quran planner's daily
+                // reminder, which this prune used to silently kill on every reschedule.
+                guard Self.ownedNotificationIDPrefixes.contains(where: { id.hasPrefix($0) }) else { return false }
                 // When there were no prayers to rebuild (no location yet), only prune the categories we DID
                 // rebuild - events and refresh nags. Leaving prayer notifications alone means a momentary
                 // location gap can't wipe a working adhan schedule.
@@ -2211,6 +2349,10 @@ extension Settings {
     private static let prayerTrackerDayFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
+        // Pinned explicitly (the Quran-side dayKey does the same): tracker keys must stay Gregorian
+        // "yyyy-MM-dd" even when the iPhone's SYSTEM calendar is Hijri - every lexicographic key
+        // comparison (pruning, menses ranges, earliest-day) depends on it.
+        formatter.calendar = Calendar(identifier: .gregorian)
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
     }()
@@ -2412,8 +2554,7 @@ extension Settings {
     /// dictionaries out once lets the stats engine walk a whole year without a lookup-per-day through
     /// the accessor methods.
     func trackerSnapshot() -> (marks: [String: Set<String>], exemptDays: Set<String>, activePauseStartKey: String?) {
-        let startKey = (mensesPauseActive && mensesPauseStartDate != nil)
-            ? prayerTrackerKey(for: mensesPauseStartDate!) : nil
+        let startKey = mensesPauseActive ? mensesPauseStartDate.map(prayerTrackerKey(for:)) : nil
         return (loadPrayerTracker(), loadExemptDays(), startKey)
     }
 
@@ -2425,14 +2566,30 @@ extension Settings {
         exemptDaysCache = nil
     }
 
-    /// The first day that has any mark or exemption - "tracking since". Nil until something is recorded.
+    /// The first day that has any mark or exemption - "tracking since". Nil until something is
+    /// recorded. Only well-formed "yyyy-MM-dd" keys count: a single foreign or corrupt key (they
+    /// tend to sort LOW) used to poison the lexicographic min AND send the stats walk on a
+    /// years-long main-thread loop that read as a crash on the affected device.
     func trackerEarliestDayKey() -> String? {
-        let marks = loadPrayerTracker().keys.min()
-        let exempt = loadExemptDays().min()
+        let marks = loadPrayerTracker().keys.filter(Self.isWellFormedTrackerDayKey).min()
+        let exempt = loadExemptDays().filter(Self.isWellFormedTrackerDayKey).min()
         switch (marks, exempt) {
         case let (m?, e?): return min(m, e)
         default: return marks ?? exempt
         }
+    }
+
+    /// Exactly ten ASCII bytes, digits with dashes at 4 and 7 - the only shape every tracker key
+    /// comparison in this file is valid for.
+    static func isWellFormedTrackerDayKey(_ key: String) -> Bool {
+        let bytes = Array(key.utf8)
+        guard bytes.count == 10,
+              bytes[4] == UInt8(ascii: "-"),
+              bytes[7] == UInt8(ascii: "-") else { return false }
+        for (index, byte) in bytes.enumerated() where index != 4 && index != 7 {
+            guard byte >= UInt8(ascii: "0"), byte <= UInt8(ascii: "9") else { return false }
+        }
+        return true
     }
 
     /// The prayer a nag BEFORE `cascadePrayerName` is actually about: the trackable prayer whose
@@ -2635,7 +2792,11 @@ extension Settings {
         var beforeFajr = false
         for _ in 0...1 {
             guard let hijriDate = hijriCalendar.date(from: comps) else { return nil }
-            let eventDay = gregorianCalendar.startOfDay(for: hijriDate)
+            // The event's hijri components are the ADJUSTED date the user sees; its real Gregorian day
+            // reverses the manual offset, exactly like the calendar screens. Without this the
+            // "First Day of Ramadan" suhoor reminder fired on the unadjusted Umm al-Qura day.
+            let offsetCorrected = hijriCalendar.date(byAdding: .day, value: -hijriOffset, to: hijriDate) ?? hijriDate
+            let eventDay = gregorianCalendar.startOfDay(for: offsetCorrected)
             // Fire 30 minutes before Fajr on the event day (useful for fasting days - suhoor / intention).
             // Fajr needs computed prayer times, which need a location; if those aren't available, fall back
             // to 5:00 AM so the reminder still lands pre-dawn.
@@ -2866,11 +3027,24 @@ extension Settings {
             prayerCalculation = calculationAutoPreviousMethod
         }
         calculationAutomatic = false
-        calculationAutoChanged = false
+        recordAutomaticCalculationAnswer()
         fetchPrayerTimes(force: true, runAutoChecks: false)
     }
 
     func confirmAutomaticCalculationChange() {
+        recordAutomaticCalculationAnswer()
+    }
+
+    /// Files the user's answer to the calculation card against the *detection* it answered, not just as a
+    /// "dismissed" bit. Clearing `calculationAutoChanged` alone was never durable: anything that later moved
+    /// `prayerCalculation` away from the answer made the next fetch see a fresh region change and set the
+    /// flag again, so the same card returned. Recording the (region, recommended method) pair means the
+    /// detection they answered is answered for good - see `checkAutomaticPrayerCalculation`. Re-arming
+    /// "Choose Automatically" clears it (see `calculationAutomatic`'s didSet), because that is the user
+    /// explicitly asking to be told again.
+    private func recordAutomaticCalculationAnswer() {
+        calculationAutoAnsweredCountryCode = calculationAutoDetectedCountryCode
+        calculationAutoAnsweredMethod = calculationAutoDetectedMethod
         calculationAutoChanged = false
     }
 }

@@ -12,6 +12,9 @@ struct PrayerCountdown: View {
     }
 
     var presentation: Presentation = .section
+    /// Snapshotted so `==` sees the info-disclosure toggle: the body branches on `showPrayerInfo`
+    /// (the extra prayer rows), and the tap that flips it must not be swallowed by the equality gate.
+    var showPrayerInfoKey: Bool = Settings.shared.showPrayerInfo
 
     @ObservedObject private var settings = Settings.shared
     @Environment(\.scenePhase) private var scenePhase
@@ -225,7 +228,11 @@ struct PrayerCountdown: View {
             }
         }
         .conditionalGlassEffect()
-        .padding(.vertical, 2)
+        // Symmetric, and only a point: this pads BOTH sides of the bar, and the stack it sits in
+        // already supplies the real separation. Paired with dropping `timeLeftRow`'s `.padding(.top)`
+        // below - that extra top padding was the whole reason the bar sat nearer the row above it
+        // than the caption beneath it.
+        .padding(.vertical, 1)
         #if os(watchOS)
         .padding(.top, 4)
         #endif
@@ -248,7 +255,6 @@ struct PrayerCountdown: View {
         }
         .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity)
-        .padding(.top, 2)
     }
 
     private func handleScenePhaseChange(_ phase: ScenePhase) {
@@ -329,13 +335,15 @@ struct PrayerCountdown: View {
 }
 
 extension PrayerCountdown: Equatable {
-    /// Everything this view draws comes from observed `Settings` state or its own timer-driven
-    /// `progress` - both of which invalidate the view directly, bypassing this comparison. A
-    /// parent-driven re-evaluation therefore never carries new information, and `presentation` is
-    /// the only stored input. Gating on it matters for `.skyFooter`: `SkyView` re-runs its body
+    /// Everything else this view draws comes from observed `Settings` state or its own timer-driven
+    /// `progress`. Gating on `presentation` matters for `.skyFooter`: `SkyView` re-runs its body
     /// every second to move the sun and would otherwise drag the whole countdown subtree with it.
+    /// `showPrayerInfoKey` is compared too: the body branches on that toggle, and relying on the
+    /// Settings publish to bypass this gate proved unreliable (the same staleness class as the
+    /// accent-color bug the render signatures fixed).
     static func == (lhs: PrayerCountdown, rhs: PrayerCountdown) -> Bool {
-        lhs.presentation == rhs.presentation
+        lhs.presentation == rhs.presentation &&
+        lhs.showPrayerInfoKey == rhs.showPrayerInfoKey
     }
 }
 

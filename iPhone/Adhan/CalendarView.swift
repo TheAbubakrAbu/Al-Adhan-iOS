@@ -104,10 +104,12 @@ struct CalendarView: View {
     }()
 
     /// Which Hijri month it is right now, so the list can mark it. Reads the same Umm al-Qura calendar the rest of
-    /// the screen does, and honours the user's Hijri offset.
+    /// the screen does, and honours BOTH the user's Hijri offset and the Maghrib switch - the same derivation as
+    /// the month grid's `todayHijriComponents()`, so the two halves of this screen can never disagree on "now".
     private var currentHijriMonthNumber: Int {
         let calendar = Self.ummAlQuraEN
-        let adjusted = calendar.date(byAdding: .day, value: settings.hijriOffset, to: Date()) ?? Date()
+        let effective = settings.effectiveHijriReferenceDate()
+        let adjusted = calendar.date(byAdding: .day, value: settings.hijriOffset, to: effective) ?? effective
         return calendar.component(.month, from: adjusted)
     }
 
@@ -222,7 +224,12 @@ struct CalendarView: View {
         settings.specialEvents.map { event in
             var components = event.1
             components.year = year
-            let date = settings.hijriCalendar.date(from: components) ?? Date()
+            // Reverse the manual offset, exactly like the month grid's `gregorianDate(forDay:)` - the
+            // stored hijri date is the ADJUSTED one the user sees, so its Gregorian day moves the other
+            // way. Without this the list's dates, countdowns, and past-graying sat `hijriOffset` days
+            // off from the grid on the same screen.
+            let unadjusted = settings.hijriCalendar.date(from: components) ?? Date()
+            let date = settings.hijriCalendar.date(byAdding: .day, value: -settings.hijriOffset, to: unadjusted) ?? unadjusted
             let monthName = Self.monthSymbols[(components.month ?? 1) - 1]
 
             return HijriEventRowModel(
@@ -245,7 +252,9 @@ struct CalendarView: View {
         let allPast = settings.specialEvents.allSatisfy { event in
             var components = event.1
             components.year = currentYear
-            guard let date = settings.hijriCalendar.date(from: components) else { return true }
+            guard let unadjusted = settings.hijriCalendar.date(from: components) else { return true }
+            // Same offset reversal as `buildEventRows` - the rollover decision must see the dates the list shows.
+            let date = settings.hijriCalendar.date(byAdding: .day, value: -settings.hijriOffset, to: unadjusted) ?? unadjusted
             return date < todayStart
         }
         return currentYear + (allPast ? 1 : 0)
@@ -373,7 +382,10 @@ struct CalendarView: View {
     }
 
     private func updateInformation() {
-        let currentDate = settings.effectiveHijriReferenceDate()
+        // Maghrib switch AND manual offset, like every other "today in hijri" on this screen - the
+        // reference date alone put the events list a day (or a year, near Muharram 1) off for offset users.
+        let effective = settings.effectiveHijriReferenceDate()
+        let currentDate = settings.hijriCalendar.date(byAdding: .day, value: settings.hijriOffset, to: effective) ?? effective
         let components = settings.hijriCalendar.dateComponents([.year, .month], from: currentDate)
         hijriYear = components.year ?? 1445
         hijriMonth = components.month ?? 1
@@ -593,6 +605,9 @@ struct HijriMonthCalendarView: View {
             displayedYear = today.year ?? displayedYear
             displayedMonth = today.month ?? displayedMonth
         }
+        // The events list beside this mode washes itself through `applyConditionalListStyle`; the
+        // calendar grid is a plain ScrollView and needs the same light explicitly.
+        .accentWashedBackground()
     }
 
     // MARK: Header
@@ -701,7 +716,7 @@ struct HijriMonthCalendarView: View {
 
     private var weekdayHeader: some View {
         HStack(spacing: 6) {
-            ForEach(Self.weekdaySymbols, id: \.self) { symbol in
+            ForEach(orderedWeekdaySymbols, id: \.self) { symbol in
                 Text(symbol)
                     .font(.caption2.weight(.semibold))
                     .foregroundColor(.secondary)
@@ -813,14 +828,24 @@ struct HijriMonthCalendarView: View {
     // MARK: Data helpers
 
     /// Cells for the displayed month: leading `nil`s for the first weekday offset, then day numbers.
+    /// The offset respects the region's week start (paired with `orderedWeekdaySymbols`): the old
+    /// hardcoded Sunday-first math drew every Monday-first/Saturday-first region's month shifted by
+    /// up to six columns.
     private var monthCells: [Int?] {
         guard let first = hijriCalendar.date(from: DateComponents(year: displayedYear, month: displayedMonth, day: 1)),
               let range = hijriCalendar.range(of: .day, in: .month, for: first) else { return [] }
-        let leading = hijriCalendar.component(.weekday, from: first) - 1
+        let leading = (hijriCalendar.component(.weekday, from: first) - hijriCalendar.firstWeekday + 7) % 7
         var cells: [Int?] = Array(repeating: nil, count: leading)
         cells.append(contentsOf: range.map { Optional($0) })
         while cells.count % 7 != 0 { cells.append(nil) }
         return cells
+    }
+
+    /// `weekdaySymbols` rotated so the header starts on the region's first weekday, matching
+    /// `monthCells`' leading-blank math.
+    private var orderedWeekdaySymbols: [String] {
+        let start = hijriCalendar.firstWeekday - 1
+        return (0..<7).map { Self.weekdaySymbols[(start + $0) % 7] }
     }
 
     /// Hijri components for "today", applying the same Maghrib switch and manual offset the rest of the app uses.
@@ -932,11 +957,15 @@ struct HijriMonthRow: View, Equatable {
     var accentColor: AccentColor = Settings.shared.accentColor
     var usesCustomArabicFace: Bool = Settings.shared.islamUsesCustomArabicFace
     var fontArabic: String = Settings.shared.nonQuranArabicFontName
+    /// The `.custom` accent resolves `.color` through this hex, so an edit to it must fail `==` -
+    /// comparing only the enum case left rows on the old tint (the `ReciterRow` fix, applied here).
+    var customAccentHex: String = Settings.shared.customAccentColorHex
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.month.number == rhs.month.number &&
         lhs.isCurrent == rhs.isCurrent &&
         lhs.accentColor == rhs.accentColor &&
+        lhs.customAccentHex == rhs.customAccentHex &&
         lhs.usesCustomArabicFace == rhs.usesCustomArabicFace &&
         lhs.fontArabic == rhs.fontArabic
     }

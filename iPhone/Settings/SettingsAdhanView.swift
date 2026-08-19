@@ -176,7 +176,7 @@ struct SettingsAdhanView: View {
         }
     }
 
-    /// A dialog anchored only to the root list cannot present while the user is on a *pushed* sub-screen -
+    /// A dialog anchored only to the root list cannot present while the user is on a *pushed* sub-screen - 
     /// which is exactly why the Traveling Mode confirmation never appeared (the toggle lives on the pushed
     /// "Traveling Mode" screen). The binding and content are shared so the same dialog can also be attached
     /// to the sub-screens, and whichever one is actually on screen presents it.
@@ -199,7 +199,9 @@ struct SettingsAdhanView: View {
                 showAlert = .travelTurnOnAutomatic
             } else if settings.ownsTravelingModeAutoCheck, settings.travelTurnOffAutomatic {
                 showAlert = .travelTurnOffAutomatic
-            } else if settings.calculationAutoChanged {
+            } else if settings.ownsAutomaticCalculationCheck, settings.calculationAutoChanged {
+                // Same rule for the calculation card: a paired watch takes the phone's method, so its
+                // buttons would fight the value it was just handed.
                 showAlert = .calculationAutomaticChanged
             }
         }
@@ -291,7 +293,7 @@ struct SettingsAdhanView: View {
     }
 
     // The confirmation is attached to these pushed screens as well as the root list. The toggles that trigger
-    // it live *here*, and a dialog anchored only to the (now off-screen) root list could never present -
+    // it live *here*, and a dialog anchored only to the (now off-screen) root list could never present - 
     // which is why the Traveling Mode confirmation appeared to do nothing.
     private var prayerCalculationDestination: some View {
         PrayerCalculationListView()
@@ -1557,9 +1559,8 @@ struct PrayerCalculationListView: View {
         #if os(iOS)
         .adaptiveSafeArea(edge: .bottom) {
             SearchBar(text: $searchText.animation(.easeInOut))
-                .padding([.leading, .top], -8)
                 .padding(.horizontal, 24)
-                .padding(.bottom, 8)
+                .padding(.bottom, BottomBarCushion.standard)
                 .background(Color.white.opacity(0.00001))
         }
         #elseif os(watchOS)

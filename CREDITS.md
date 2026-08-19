@@ -18,10 +18,14 @@ App Store: <https://apps.apple.com/us/app/al-adhan-prayer-times/id6475015493>
 
 - **Adhan calculations** (fully offline, on-device) - **Batoul Apps** - <https://github.com/batoulapps/adhan-swift>
 - **Adhan sounds** - **Omar Al-Ejel** - <https://github.com/oalejel/Athan-Utility>
+- **"Serene" adhan** - **"Beautiful adhan" by Adam-synagda**, CC0 1.0 (public domain dedication), via Wikimedia Commons - <https://commons.wikimedia.org/wiki/File:Beautiful_adhan.ogg>. Trimmed and loudness-normalized from the original.
+- **"Aaqib Azeez" adhan** - **Aaqib Azeez**, CC BY-SA 4.0, via Wikimedia Commons - <https://commons.wikimedia.org/wiki/File:The_Adhan_-_Muslim_Call_to_Prayer_-_Aaqib_Azeez.mp3> - license: <https://creativecommons.org/licenses/by-sa/4.0/>. Trimmed and loudness-normalized from the original; the derived audio clips remain under CC BY-SA 4.0.
+- **"Takbir" alert tone** - the opening takbir pair of the **Aaqib Azeez** adhan above, CC BY-SA 4.0, via Wikimedia Commons - <https://commons.wikimedia.org/wiki/File:The_Adhan_-_Muslim_Call_to_Prayer_-_Aaqib_Azeez.mp3> - license: <https://creativecommons.org/licenses/by-sa/4.0/>. Trimmed and loudness-normalized from the original; the derived clip remains under CC BY-SA 4.0.
 - **Moon phase (illumination and waxing/waning)** - **SunCalc by Vladimir Agafonkin**, after Meeus' *Astronomical Algorithms* - <https://github.com/mourner/suncalc>
 - **Uthmani Arabic font** - **King Fahad Complex (KFGQPC)** - <https://qul.tarteel.ai/resources/font/245>
 - **Indopak Nastaleeq Arabic font** - **Ayman Siddiqui and R. Siddiqua** - <https://qul.tarteel.ai/resources/font/242>
 - **Dua and adhkar references (hadith numbering)** - **Sunnah.com** - <https://sunnah.com/>
+- **Reference for the qiraat guide's profiles of the ten imams and twenty narrators** - **QiraatHub** - <https://qiraathub.com/>. The profile pages in the app are written for it; QiraatHub is the companion reference each page links out to.
 - **How-To Guides further reading** - **IslamQA** - <https://islamqa.info/en>
 - **99 Names of Allah** - **MyIslam** - <https://myislam.org/99-names-of-allah/>
 
