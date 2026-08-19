@@ -1,4 +1,4 @@
-# Version 2.6.3
+# Version 2.6.2
 
 Three new adhan sounds, a progress profile with badges, the qiraat guide, and polish across the app and widgets.
 
