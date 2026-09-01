@@ -98,6 +98,24 @@ extension Settings {
         static let rawhArabic = "رَوح عَن يَعقُوب"
         static let ishaqArabic = "إِسحَاق عَن خَلَفٍ العَاشِر"
         static let idrisArabic = "إِدرِيس عَن خَلَفٍ العَاشِر"
+
+        /// Mirrors `Settings.Riwayah.canonicalTag` in Al-Islam's SettingsQuran.swift: folds the
+        /// stored spellings this app has shipped over the years onto one tag per riwayah.
+        static func canonicalTag(_ stored: String) -> String {
+            let raw = stored.trimmingCharacters(in: .whitespacesAndNewlines)
+            switch raw {
+            case "", "Hafs", "Hafs an Asim", hafsLabel: return hafsTag
+            case warsh, "Warsh An Nafi": return warsh
+            case qaloon, "Qaloon an Nafi", "Qaloon An Nafi": return qaloon
+            case duri, "Ad-Duri an Abi Amr": return duri
+            case susi, "As-Susi an Abi Amr": return susi
+            case buzzi, "Al-Buzzi an Ibn Kathir": return buzzi
+            case qunbul, "Qumbul an Ibn Kathir": return qunbul
+            case shubah, "Shu'bah an Asim", "Shu'bah an Aasim", "Shouba an Asim": return shubah
+            case khalaf: return khalaf
+            default: return raw
+            }
+        }
     }
 }
 

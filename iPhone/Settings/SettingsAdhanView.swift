@@ -704,17 +704,38 @@ struct NotificationView: View {
                     Toggle("Islamic Calendar Notifications", isOn: $settings.dateNotifications.animation(.easeInOut))
                         .font(.subheadline)
                         .onChange(of: settings.dateNotifications) { _ in settings.hapticFeedback() }
+
+                    if settings.dateNotifications {
+                        Toggle("Remind a Day Before", isOn: $settings.dateNotificationsDayBefore.animation(.easeInOut))
+                            .font(.subheadline)
+                            .onChange(of: settings.dateNotificationsDayBefore) { _ in settings.hapticFeedback() }
+
+                        Text("Also sends a heads-up the evening before each Islamic date - so Ramadan, Eid, and the days of fasting never arrive unannounced.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 2)
+                    }
                 }
 
                 #if os(iOS)
                 Section(header: Text("ADHAN SOUND")) {
                     Picker("Adhan Sound", selection: $settings.adhanNotificationSound.animation(.easeInOut)) {
+                        // Two groups, not one run of nineteen names: the tones (with Default, the same
+                        // six the ALERT TONE picker offers) and then the calls to prayer.
                         Section {
-                            ForEach(Settings.supportedAdhanSounds) { option in
+                            ForEach(Settings.supportedAlertTones) { option in
                                 Text(option.title).tag(option.id)
                             }
                         } header: {
-                            Text("Adhan Sound")
+                            Text("Tones")
+                                .foregroundStyle(.secondary)
+                        }
+                        Section {
+                            ForEach(Settings.supportedAdhanRecordings) { option in
+                                Text(option.title).tag(option.id)
+                            }
+                        } header: {
+                            Text("Adhans")
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -786,7 +807,7 @@ struct NotificationView: View {
                             }
                     }
 
-                    Text("Used for prenotifications, the optional times (Shurooq, Duhaa, Islamic Midnight, Last Third), and any prayer whose adhan is switched off — so you can tell a prayer notification from every other alert on your phone. Echo is a short chime rather than a call to prayer. Choose Default to go back to the iPhone's own alert sound.")
+                    Text("Used for prenotifications, the optional times (Shurooq, Duhaa, Islamic Midnight, Last Third), and any prayer whose adhan is switched off, so you can tell a prayer notification from every other alert on your phone. None of these is a call to prayer. Echo and Takbir are soft; Chime, Ring, and Alarm are pitched to carry through background noise, Alarm the most of all. Choose Default to go back to the iPhone's own alert sound.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .padding(.vertical, 2)
@@ -1466,6 +1487,7 @@ extension SettingsSearchEntry {
         .init(title: "Notification Settings", path: "Notifications", keywords: "alerts permission bell", destination: .notifications),
         .init(title: "Adhan Sound", path: "Notifications", keywords: "athan azan sound mecca madinah silent mode ringer", destination: .notifications),
         .init(title: "Hijri Calendar Notifications", path: "Notifications", keywords: "islamic events eid ramadan reminders", destination: .notifications),
+        .init(title: "Remind a Day Before", path: "Notifications", keywords: "islamic dates day before tomorrow ramadan eid heads up early", destination: .notifications),
         .init(title: "Prayer Reminders & Pre-Notifications", path: "Notifications → Prayer Reminders", keywords: "before minutes early alert per prayer fajr dhuhr asr maghrib isha", destination: .notificationReminders),
         .init(title: "Nagging Mode", path: "Notifications → Prayer Reminders", keywords: "nag repeat reminders pray on time cascade did you pray tracker", destination: .notificationReminders),
     ]

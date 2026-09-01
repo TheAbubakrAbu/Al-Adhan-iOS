@@ -1,3 +1,27 @@
+# Version 2.6.3
+
+Ask AI that knows your prayer times, a clearer prayer tracker, a much deeper Islam tab, and an app 7 MB smaller.
+
+Ask AI:
+- Ask a question, read the answer, ask a follow-up: a conversation, not a one-shot search.
+- It reads your own prayer schedule, so "when is Maghrib" and "how many sunnah rakahs before Dhuhr" are answered from today's times, not from memory.
+- Every reply cites the app's own articles it drew on, and each citation opens.
+- Runs on Apple Intelligence on your device. Private, offline, and free.
+- Reached from the ASK AI row above search results, and from the Islam tab.
+
+Al-Adhan:
+- The prayer tracker reads at a glance: on time, late, missed, and perfect days, each with its own count.
+- Adhan notification cuts are made on your device from the full recording instead of being shipped: 7 MB smaller, and every adhan sounds exactly as it did.
+
+Islamic Tools:
+- Inheritance Calculator: divide an estate by the Quranic shares.
+- Aqeedah: Tawhid, Shirk, Kufr, Bid'ah, the Mawlid, Salafiyyah, Quran and Sunnah, and the schools of creed.
+- Scholars: the scholars among the Sahabah, the Salaf and the imams, at-Tabari, Ibn Taymiyyah, Ibn al-Qayyim, adh-Dhahabi, Ibn Kathir, and those who followed.
+- Answering: Sufism, the Shia, Christianity, Judaism, Hinduism, Paganism, Buddhism, and Atheism.
+- Two new Arabic faces for the duas, adhkar and articles: Hijazi, in four styles, and Kufi.
+
+Bug fixes and optimizations throughout.
+
 # Version 2.6.2
 
 Three new adhan sounds, a progress profile with badges, the qiraat guide, and polish across the app and widgets.

@@ -16,10 +16,14 @@ struct AdhanSoundOption: Identifiable, Equatable {
 }
 
 extension Settings {
-    /// Each adhan ships as three clips: `<id>.caf` (the whole adhan), `<id>-30.caf` (its opening 30 seconds)
-    /// and `<id>-short.caf` (a 5–15 second excerpt). iOS rejects notification sounds longer than 30 seconds,
-    /// so a notification gets one of the two cuts - which one is a per-prayer choice - while in-app playback
-    /// and the settings preview get the full recording.
+    /// Each adhan is one bundled recording, `<id>.caf` (AAC, the whole adhan), and two cuts a notification
+    /// can carry: `<id>-30.caf` (its opening 30 seconds) and `<id>-short.caf` (a 5–15 second excerpt). iOS
+    /// rejects notification sounds longer than 30 seconds and only plays PCM/IMA4, so a notification gets one
+    /// of the two cuts - which one is a per-prayer choice - while in-app playback and the settings preview get
+    /// the full recording. The cuts are not bundled: `AdhanClipStore` renders the selected adhan's two into
+    /// Library/Sounds (where `UNNotificationSound` looks) from the full recording, which took 7 MB of IMA4 off
+    /// every install. The tones (echo, takbir, chime, ring, alarm) are seconds long and ship as three
+    /// identical bundled clips, as before.
     static let supportedAdhanSounds: [AdhanSoundOption] = [
         .init(id: "default", title: "Default"),
         // A 3.6-second chime, not a call to prayer - for being told without being called. All three of its
@@ -33,6 +37,24 @@ extension Settings {
         // takbir was clipped in the source). Mastered to match the adhan clips' loudness, hotter than
         // echo, for the "tones are too quiet" complaint. CC BY-SA 4.0, see CREDITS.md.
         .init(id: "takbir", title: "Takbir"),
+
+        // The three "cuts through a noisy room" tones, added for listeners who cannot pick a prayer
+        // notification out of everyday background noise. Echo and Takbir both sit at 300-750 Hz, which
+        // is exactly where traffic, kitchens, HVAC and speech put their own energy, so they mask easily.
+        // These three put their fundamentals at 1.2-2.6 kHz (above most room noise, still below the
+        // range age-related hearing loss takes first) and repeat the figure two or three times, because
+        // a repeated pattern is far easier to detect in noise than one hit. All CC0, see CREDITS.md.
+        // Like echo and takbir, all three clips of each are the same recording: there is nothing to cut.
+        //
+        // A rising three-note bell (A6-B6-E7, so 1.8-2.6 kHz), the figure struck three times, each
+        // strike decaying in about half a second. The gentlest and the highest-pitched of the three.
+        .init(id: "chime", title: "Chime"),
+        // A rising three-note signal (C6-D6-E6, 1.0-1.3 kHz) whose last note rings out for a full
+        // second, played twice. The lowest of the three, so the one that survives a phone in a pocket.
+        .init(id: "ring", title: "Ring"),
+        // Twelve 110ms beeps in three groups of four, 1.2 kHz with strong harmonics through 4.6 kHz.
+        // The loudest and most cutting tone in the app, and the only one that sounds like an alarm.
+        .init(id: "alarm", title: "Alarm"),
 
         .init(id: "egypt", title: "Egypt"),
         .init(id: "makkah", title: "Makkah"),
@@ -59,13 +81,22 @@ extension Settings {
         .init(id: "zakariya", title: "Zakariya")
     ]
 
-    /// What the ALERT TONE picker offers: the system sound and the chime, never a call to prayer.
+    /// What the ALERT TONE picker offers: the system sound and the short tones, never a call to prayer.
     /// The alert tone plays for prenotifications, the optional times, and prayers whose adhan is
-    /// switched off - exactly the moments an adhan would defeat the point.
+    /// switched off - exactly the moments an adhan would defeat the point. Ordered by how far each one
+    /// carries, from the soft Echo up to Alarm, so a listener who cannot hear one can walk down the list.
+    static let alertToneIDs: Set<String> = ["default", "echo", "takbir", "chime", "ring", "alarm"]
     static let supportedAlertTones: [AdhanSoundOption] = supportedAdhanSounds.filter {
-        $0.id == "default" || $0.id == "echo" || $0.id == "takbir"
+        alertToneIDs.contains($0.id)
     }
     static let supportedAlertToneIDs = Set(supportedAlertTones.map(\.id))
+
+    /// The calls to prayer alone: the second group of the ADHAN SOUND picker, which lists the tones
+    /// (`supportedAlertTones`, "Default" included) first and these after them, so a listener picking an
+    /// adhan is not reading Chime and Alarm in the same run as Makkah and Madina.
+    static let supportedAdhanRecordings: [AdhanSoundOption] = supportedAdhanSounds.filter {
+        !alertToneIDs.contains($0.id)
+    }
 
     /// The adhan a fresh install gets: whichever clip is *titled* "Minshawi 1", which after the swap above
     /// is the one bundled as `minshawi-2`.
@@ -118,8 +149,16 @@ extension Settings {
     static let supportedAdhanSoundIDs = Set(supportedAdhanSounds.map(\.id))
     private static var adhanSoundResourceCache: [String: String?] = [:]
 
-    /// Resolves a picker id to a bundled `.caf` resource name, or `nil` for "Default" and for any id whose
-    /// clip is missing from the bundle. `variant` picks the full recording ("") or the 30-second cut.
+    /// Forget every resolved clip: the on-device cuts just changed (rendered, or pruned).
+    static func invalidateAdhanSoundResourceCache() {
+        assert(Thread.isMainThread, "invalidateAdhanSoundResourceCache must be called on the main thread")
+        adhanSoundResourceCache.removeAll()
+    }
+
+    /// Resolves a picker id to a `.caf` resource name, or `nil` for "Default" and for any id whose clip
+    /// isn't available yet. `variant` picks the full recording ("") or one of the two cuts. The full
+    /// recordings and the tones' clips are bundled; an adhan's cuts are rendered on the device by
+    /// `AdhanClipStore` (a nil here means "not rendered yet" - the store reschedules once they are).
     private func adhanSoundResource(for selection: String, variant: String) -> String? {
         // The static cache is a plain Dictionary; every current caller is main-confined and this keeps
         // that invariant enforced rather than remembered.
@@ -130,11 +169,13 @@ extension Settings {
         }
 
         let resolved: String? = {
-            guard selection != "default",
-                  Self.supportedAdhanSoundIDs.contains(selection),
-                  Bundle.main.path(forResource: resource, ofType: "caf") != nil else {
-                return nil
+            guard selection != "default", Self.supportedAdhanSoundIDs.contains(selection) else { return nil }
+            #if os(iOS)
+            if !variant.isEmpty, AdhanClipStore.cuts[selection] != nil {
+                return AdhanClipStore.isReady(resource: resource) ? resource : nil
             }
+            #endif
+            guard Bundle.main.path(forResource: resource, ofType: "caf") != nil else { return nil }
             return resource
         }()
 
@@ -147,8 +188,9 @@ extension Settings {
         adhanSoundResource(for: selection, variant: "")
     }
 
-    /// Filename of the notification cut, for `UNNotificationSound`. Falls back to the 30-second cut when the
-    /// requested short clip isn't bundled, so a missing asset degrades to a longer adhan rather than silence.
+    /// Filename of the notification cut, for `UNNotificationSound` (which finds the rendered cuts in
+    /// Library/Sounds by name). Falls back to the 30-second cut when the requested short clip isn't
+    /// available, so a missing asset degrades to a longer adhan rather than silence.
     func adhanNotificationSoundFilename(for selection: String, length: AdhanClipLength = .full) -> String? {
         let resource = adhanSoundResource(for: selection, variant: length.suffix)
             ?? adhanSoundResource(for: selection, variant: Self.adhanNotificationClipSuffix)
@@ -1849,6 +1891,12 @@ extension Settings {
             return false
 
         case .notDetermined:
+            #if DEBUG
+            // Headless screenshots: the system prompt cannot be dismissed without a tap and covers the
+            // middle of every screen on a fresh simulator, so `-skipNotificationPrompt` leaves the
+            // permission undetermined instead of asking. DEBUG builds only.
+            if ProcessInfo.processInfo.arguments.contains("-skipNotificationPrompt") { return false }
+            #endif
             do {
                 let granted = try await center.requestAuthorization(options: [.alert, .sound])
                 showNotificationAlert = !granted && !notificationNeverAskAgain
@@ -1970,9 +2018,10 @@ extension Settings {
     }
 
     /// True when the nag cascade leading up to `prayer` on `day` already has its answer, so scheduling
-    /// it would only nag about a prayer that is already prayed. The cascade before a prayer asks about
-    /// the PREVIOUS trackable prayer of that day; the cascade before the day's first (Fajr) asks about
-    /// the night prayer begun the previous civil day (Isha). Menses pause silences every cascade.
+    /// it would only nag about a prayer that is already recorded - prayed on time, prayed late, or
+    /// missed: any mark is an answer. The cascade before a prayer asks about the PREVIOUS trackable
+    /// prayer of that day; the cascade before the day's first (Fajr) asks about the night prayer begun
+    /// the previous civil day (Isha). Menses pause silences every cascade.
     private func nagCascadeIsAnswered(for prayer: Prayer, in dayList: [Prayer], on day: Date) -> Bool {
         if isTrackerExempt(on: day) || isTrackerExempt(on: Date()) { return true }
 
@@ -1981,11 +2030,11 @@ extension Settings {
                 && $0.nameTransliteration != prayer.nameTransliteration
                 && Self.trackablePrayerNames.contains($0.nameTransliteration) })
             .max(by: { $0.time < $1.time }) {
-            return isPrayerMarkedPrayed(previous.nameTransliteration, on: day)
+            return isPrayerMarked(previous.nameTransliteration, on: day)
         }
 
         guard let previousDay = Calendar.current.date(byAdding: .day, value: -1, to: day) else { return false }
-        return isPrayerMarkedPrayed("Isha", on: previousDay)
+        return isPrayerMarked("Isha", on: previousDay)
     }
 
     /// The reminder cascade leading up to a prayer: 30, 15, 10, 5 minutes before, by default.
@@ -2050,6 +2099,14 @@ extension Settings {
             // standalone so the two devices can't double-alert for the same prayer.
             UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
             return
+        }
+        #endif
+        #if os(iOS)
+        // The adhan's notification cuts are rendered on the device. If the selected adhan's aren't there
+        // yet (first launch, a new recording, a re-render), this pass goes out with the system sound and
+        // the store runs it again the moment the cuts exist - the app never blocks on the render.
+        AdhanClipStore.ensureClips(for: adhanNotificationSound) { [weak self] rendered in
+            if rendered { self?.scheduleNotifications(deferred: true) }
         }
         #endif
         #if os(iOS) || os(watchOS)
@@ -2124,6 +2181,13 @@ extension Settings {
         if dateNotifications {
             for event in specialEvents {
                 if let built = makeEventNotificationRequest(for: event) { eventRequests.append(built) }
+                // The day-before heads-up (on by default): "Ramadan begins tomorrow evening" beats
+                // finding out at suhoor time. The hand-written "Day Before Ashura" table row already
+                // IS a day-before reminder, so it never gets one of its own.
+                if dateNotificationsDayBefore, !event.0.hasPrefix("Day Before"),
+                   let built = makeEventNotificationRequest(for: event, dayBefore: true) {
+                    eventRequests.append(built)
+                }
             }
         }
 
@@ -2324,16 +2388,37 @@ extension Settings {
         }
     }
 
-    /// The canonical prayers marked prayed on `date`, resolved through `canonicalCoverage` - so a day
-    /// recorded while traveling ("Dhuhr/Asr") reads correctly after traveling mode turns off, and vice
-    /// versa.
+    /// The canonical prayers marked PRAYED (on time or late) on `date`, resolved through
+    /// `canonicalCoverage` - so a day recorded while traveling ("Dhuhr/Asr") reads correctly after
+    /// traveling mode turns off, and vice versa. A prayer recorded as missed is not covered.
     func coveredCanonicalPrayers(on date: Date) -> Set<String> {
         coveredCanonicalPrayers(forDayKey: prayerTrackerKey(for: date))
     }
 
     func coveredCanonicalPrayers(forDayKey key: String) -> Set<String> {
-        guard let day = loadPrayerTracker()[key] else { return [] }
-        return day.reduce(into: Set<String>()) { $0.formUnion(Self.canonicalCoverage(of: $1)) }
+        Set(canonicalMarks(forDayKey: key).filter { $0.value.isPrayed }.keys)
+    }
+
+    /// Every canonical prayer recorded on the day, with its mark. See `canonicalMarks(of:)`.
+    func canonicalMarks(forDayKey key: String) -> [String: PrayerMark] {
+        guard let day = loadPrayerTracker()[key] else { return [:] }
+        return Self.canonicalMarks(of: day)
+    }
+
+    /// Resolves one stored day (recorded name → mark) to canonical prayer → mark: a traveling-day
+    /// "Dhuhr/Asr" entry yields both prayers under its mark, a "Jumuah" entry yields Dhuhr. Where two
+    /// stored entries cover the same prayer (only possible in a record older than the marks, where
+    /// "Jumuah" and "Dhuhr" could sit side by side), the stronger mark wins - prayed beats missed, on
+    /// time beats late - so a duplicate can never hide a prayer that was prayed.
+    static func canonicalMarks(of day: [String: PrayerMark]) -> [String: PrayerMark] {
+        var marks: [String: PrayerMark] = [:]
+        for (stored, mark) in day {
+            for canonical in canonicalCoverage(of: stored) {
+                if let existing = marks[canonical], existing.rank >= mark.rank { continue }
+                marks[canonical] = mark
+            }
+        }
+        return marks
     }
 
     /// Prayer names that can OWN a nag cascade (have a nagging preference): the next one of these
@@ -2344,6 +2429,7 @@ extension Settings {
 
     static let nagCategoryIdentifier = "PRAYER_NAG"
     static let nagActionMarkPrayedIdentifier = "PRAYER_NAG_MARK_PRAYED"
+    static let nagActionMarkPrayedLateIdentifier = "PRAYER_NAG_MARK_PRAYED_LATE"
     static let nagPrayerNameUserInfoKey = "nagPrayerName"
 
     private static let prayerTrackerDayFormatter: DateFormatter = {
@@ -2358,22 +2444,45 @@ extension Settings {
     }()
 
     /// Decoded tracker, cached - rows read this on every render and the underlying data only changes
-    /// through `savePrayerTracker`.
-    private static var prayerTrackerCache: [String: Set<String>]?
+    /// through `savePrayerTracker`. Day key → recorded prayer name → its mark.
+    private static var prayerTrackerCache: [String: [String: PrayerMark]]?
 
     private func prayerTrackerKey(for date: Date) -> String {
         Self.prayerTrackerDayFormatter.string(from: date)
     }
 
-    private func loadPrayerTracker() -> [String: Set<String>] {
+    private func loadPrayerTracker() -> [String: [String: PrayerMark]] {
         if let cached = Self.prayerTrackerCache { return cached }
-        let decoded = (try? JSONDecoder().decode([String: [String]].self, from: prayerTrackerData)) ?? [:]
-        let tracker = decoded.mapValues(Set.init)
+        let tracker = Self.decodePrayerTracker(prayerTrackerData)
         Self.prayerTrackerCache = tracker
         return tracker
     }
 
-    private func savePrayerTracker(_ tracker: [String: Set<String>]) {
+    /// Two on-disk shapes decode: the current `[day: [name: mark]]`, and the original `[day: [name]]`
+    /// of the single-checkmark tracker, whose every entry meant "prayed" and reads as on time. Nothing
+    /// is migrated or rewritten until the next mark is saved. The legacy shape is tried second, so a
+    /// store written by this version never round-trips through it.
+    static func decodePrayerTracker(_ data: Data) -> [String: [String: PrayerMark]] {
+        guard !data.isEmpty else { return [:] }
+        let decoder = JSONDecoder()
+        if let marked = try? decoder.decode([String: [String: String]].self, from: data) {
+            return marked.mapValues { day in
+                day.reduce(into: [String: PrayerMark]()) { result, entry in
+                    // A raw value this build doesn't know (a mark added later) still says the prayer
+                    // was recorded: read it as prayed rather than dropping it from the record.
+                    result[entry.key] = PrayerMark(rawValue: entry.value) ?? .onTime
+                }
+            }
+        }
+        if let legacy = try? decoder.decode([String: [String]].self, from: data) {
+            return legacy.mapValues { names in
+                names.reduce(into: [String: PrayerMark]()) { $0[$1] = .onTime }
+            }
+        }
+        return [:]
+    }
+
+    private func savePrayerTracker(_ tracker: [String: [String: PrayerMark]]) {
         var pruned = tracker
         // "yyyy-MM-dd" sorts lexicographically, so pruning is a string compare. Five years of history:
         // the year-by-year tracker views need real history, and a full year of marks is only a few KB.
@@ -2382,18 +2491,39 @@ extension Settings {
             pruned = pruned.filter { $0.key >= cutoff }
         }
         Self.prayerTrackerCache = pruned
-        prayerTrackerData = (try? JSONEncoder().encode(pruned.mapValues { Array($0).sorted() })) ?? Data()
+        let encodable = pruned.mapValues { $0.mapValues(\.rawValue) }
+        prayerTrackerData = (try? JSONEncoder().encode(encodable)) ?? Data()
     }
 
-    /// True when everything `prayerName` stands for is covered on `date`: a combined "Dhuhr/Asr" row
-    /// reads prayed only when BOTH are covered; a "Dhuhr" row reads prayed if the day recorded "Dhuhr",
-    /// "Jumuah", or a combined "Dhuhr/Asr".
-    func isPrayerMarkedPrayed(_ prayerName: String, on date: Date = Date()) -> Bool {
+    /// The mark shown for `prayerName` on `date`, or nil while it is unmarked. A combined row
+    /// ("Dhuhr/Asr") reads as the mark its members share, or the weaker one when they differ (a late
+    /// Asr makes the pair read late, a missed member makes it read missed), and stays unmarked while
+    /// any member is; a "Dhuhr" row reads the day's "Dhuhr", "Jumuah", or combined record.
+    func prayerMark(for prayerName: String, on date: Date = Date()) -> PrayerMark? {
+        let key = prayerTrackerKey(for: date)
         let target = Self.canonicalCoverage(of: prayerName)
-        guard !target.isEmpty else {
-            return loadPrayerTracker()[prayerTrackerKey(for: date)]?.contains(prayerName) ?? false
+        guard !target.isEmpty else { return loadPrayerTracker()[key]?[prayerName] }
+        let marks = canonicalMarks(forDayKey: key)
+        var result: PrayerMark?
+        for canonical in target {
+            guard let mark = marks[canonical] else { return nil }
+            if let current = result, current.rank <= mark.rank { continue }
+            result = mark
         }
-        return target.isSubset(of: coveredCanonicalPrayers(on: date))
+        return result
+    }
+
+    /// True when everything `prayerName` stands for was PRAYED (on time or late) on `date`: a combined
+    /// "Dhuhr/Asr" row reads prayed only when BOTH are covered; a "Dhuhr" row reads prayed if the day
+    /// recorded "Dhuhr", "Jumuah", or a combined "Dhuhr/Asr". A missed mark is not prayed.
+    func isPrayerMarkedPrayed(_ prayerName: String, on date: Date = Date()) -> Bool {
+        prayerMark(for: prayerName, on: date)?.isPrayed ?? false
+    }
+
+    /// True when `prayerName` carries ANY mark on `date` - prayed on time, late, or missed. This is the
+    /// question the nagging reminders care about: a recorded answer, whichever it is.
+    func isPrayerMarked(_ prayerName: String, on date: Date = Date()) -> Bool {
+        prayerMark(for: prayerName, on: date) != nil
     }
 
     /// How many of `prayerNames` are marked prayed on `date` (the tracker row's "3/5").
@@ -2405,30 +2535,41 @@ extension Settings {
         }.count
     }
 
+    /// The single-checkmark entry point, kept for the callers that only know "prayed": marking is
+    /// recorded as on time, unmarking clears the record.
     func setPrayerPrayed(_ prayerName: String, on date: Date = Date(), prayed: Bool) {
+        setPrayerMark(prayerName, on: date, mark: prayed ? .onTime : nil)
+    }
+
+    /// Records `mark` for `prayerName` on `date`; nil clears it back to unmarked.
+    func setPrayerMark(_ prayerName: String, on date: Date = Date(), mark: PrayerMark?) {
         var tracker = loadPrayerTracker()
         let key = prayerTrackerKey(for: date)
-        var day = tracker[key] ?? []
+        var day = tracker[key] ?? [:]
 
         let target = Self.canonicalCoverage(of: prayerName)
-        if prayed {
-            // Combined rows are stored as their canonical members, so the record stays meaningful in
-            // whatever mode it is later read. Jumuah is kept as itself - "prayed Jumuah" is worth
-            // remembering, and its coverage makes it count as Dhuhr everywhere.
-            if prayerName == "Jumuah" || target.isEmpty {
-                day.insert(prayerName)
-            } else {
-                day.formUnion(target)
-            }
-        } else if target.isEmpty {
-            day.remove(prayerName)
+        if target.isEmpty {
+            // A name outside the five: stored and cleared verbatim.
+            day[prayerName] = mark
         } else {
-            // Unmarking removes exactly the canonical prayers this name stands for. A stored entry that
-            // covers MORE than that (unmarking "Dhuhr" on a day recorded as "Dhuhr/Asr") is replaced by
-            // its residual coverage, so the other half stays prayed.
-            for stored in day where !Self.canonicalCoverage(of: stored).isDisjoint(with: target) {
-                day.remove(stored)
-                day.formUnion(Self.canonicalCoverage(of: stored).subtracting(target))
+            // Whatever covered any of these prayers before gives way. A stored entry that covers MORE
+            // than the target (marking "Dhuhr" on a day recorded as "Dhuhr/Asr") is replaced by its
+            // residual coverage under its own mark, so the other half keeps its record.
+            for (stored, storedMark) in day where !Self.canonicalCoverage(of: stored).isDisjoint(with: target) {
+                day[stored] = nil
+                for residual in Self.canonicalCoverage(of: stored).subtracting(target) {
+                    day[residual] = storedMark
+                }
+            }
+            if let mark = mark {
+                // Combined rows are stored as their canonical members, so the record stays meaningful
+                // in whatever mode it is later read. Jumuah is kept as itself - "prayed Jumuah" is
+                // worth remembering, and its coverage makes it count as Dhuhr everywhere.
+                if prayerName == "Jumuah" {
+                    day[prayerName] = mark
+                } else {
+                    for canonical in target { day[canonical] = mark }
+                }
             }
         }
         tracker[key] = day.isEmpty ? nil : day
@@ -2439,16 +2580,17 @@ extension Settings {
         let affectsLiveNags = Calendar.current.isDateInToday(date)
             || (Calendar.current.isDateInYesterday(date) && target.contains("Isha"))
 
-        if prayed {
+        if mark != nil {
+            // Any answer settles the question the nags keep asking - prayed on time, prayed late, or
+            // missed - so today's remaining ones go silent (they live under the NEXT prayer's
+            // identifier).
             if Calendar.current.isDateInToday(date) {
-                // Marking a prayer prayed TODAY also silences its remaining nags (they live under the
-                // NEXT prayer's identifier).
                 cancelNagsAboutPrayer(prayerName)
             } else if affectsLiveNags {
                 cancelPendingNags(cascadePrayerName: "Fajr", on: Date())
             }
         } else if naggingMode, affectsLiveNags {
-            // Unmarking re-arms them: the schedule is rebuilt, and the builder re-adds any nag
+            // Clearing re-arms them: the schedule is rebuilt, and the builder re-adds any nag
             // cascade that is no longer answered (see `nagCascadeIsAnswered`).
             fetchPrayerTimes(notification: true)
         }
@@ -2553,7 +2695,7 @@ extension Settings {
     /// One consistent snapshot of everything the statistics are computed from. Handing the decoded
     /// dictionaries out once lets the stats engine walk a whole year without a lookup-per-day through
     /// the accessor methods.
-    func trackerSnapshot() -> (marks: [String: Set<String>], exemptDays: Set<String>, activePauseStartKey: String?) {
+    func trackerSnapshot() -> (marks: [String: [String: PrayerMark]], exemptDays: Set<String>, activePauseStartKey: String?) {
         let startKey = mensesPauseActive ? mensesPauseStartDate.map(prayerTrackerKey(for:)) : nil
         return (loadPrayerTracker(), loadExemptDays(), startKey)
     }
@@ -2621,9 +2763,10 @@ extension Settings {
         return now
     }
 
-    /// The full "Yes, I prayed it" handling shared by the notification action and the in-app dialog.
-    func markPrayerPrayedFromNag(asked prayerName: String, cascadePrayerName: String) {
-        setPrayerPrayed(prayerName, on: trackerDate(forMarking: prayerName), prayed: true)
+    /// The full "Yes, I prayed it" handling shared by the notification actions and the in-app dialog.
+    /// On time unless the "prayed it late" answer passes `.late`.
+    func markPrayerPrayedFromNag(asked prayerName: String, cascadePrayerName: String, mark: PrayerMark = .onTime) {
+        setPrayerMark(prayerName, on: trackerDate(forMarking: prayerName), mark: mark)
         cancelPendingNags(cascadePrayerName: cascadePrayerName)
     }
 
@@ -2710,7 +2853,8 @@ extension Settings {
         }
         return .default
         #else
-        // The Watch schedules its own notifications and has none of these clips bundled.
+        // The Watch schedules its own notifications and bundles no clips at all (its 43 cafs were dead
+        // weight until 2026-08-29: nothing on the watch ever played one).
         return .default
         #endif
     }
@@ -2777,7 +2921,10 @@ extension Settings {
         }
     }
 
-    private func makeEventNotificationRequest(for event: (String, DateComponents, String, String)) -> (request: UNNotificationRequest, date: Date)? {
+    /// `dayBefore` builds the evening-before heads-up instead: it fires at 6 PM on the previous day
+    /// ("X begins tomorrow"), rather than pre-dawn on the day itself.
+    private func makeEventNotificationRequest(for event: (String, DateComponents, String, String),
+                                              dayBefore: Bool = false) -> (request: UNNotificationRequest, date: Date)? {
         let (titleText, hijriComps, eventSubTitle, _) = event
 
         let gregorianCalendar = Calendar(identifier: .gregorian)
@@ -2797,13 +2944,20 @@ extension Settings {
             // "First Day of Ramadan" suhoor reminder fired on the unadjusted Umm al-Qura day.
             let offsetCorrected = hijriCalendar.date(byAdding: .day, value: -hijriOffset, to: hijriDate) ?? hijriDate
             let eventDay = gregorianCalendar.startOfDay(for: offsetCorrected)
+            let candidate: Date?
+            if dayBefore {
+                // The heads-up lands the EVENING before, when there is still time to plan (intend the
+                // fast, prepare suhoor) - not pre-dawn of a day that hasn't started mattering yet.
+                let previousDay = gregorianCalendar.date(byAdding: .day, value: -1, to: eventDay) ?? eventDay
+                candidate = gregorianCalendar.date(bySettingHour: 18, minute: 0, second: 0, of: previousDay)
+                beforeFajr = false
+            }
             // Fire 30 minutes before Fajr on the event day (useful for fasting days - suhoor / intention).
             // Fajr needs computed prayer times, which need a location; if those aren't available, fall back
             // to 5:00 AM so the reminder still lands pre-dawn.
-            let candidate: Date?
             // Found by name, not by position: a large manual Fajr offset can move it out of first place
             // now that the day is ordered chronologically.
-            if let fajr = getPrayerTimes(for: eventDay, fullPrayers: true)?
+            else if let fajr = getPrayerTimes(for: eventDay, fullPrayers: true)?
                 .first(where: { $0.nameTransliteration == "Fajr" }) {
                 candidate = gregorianCalendar.date(byAdding: .minute, value: -30, to: fajr.time)
                 beforeFajr = true
@@ -2826,9 +2980,13 @@ extension Settings {
 
         let content = UNMutableNotificationContent()
         content.title = AppIdentifiers.appName
-        content.body = beforeFajr
-            ? "\(titleText) is today: \(eventSubTitle). Sent 30 minutes before Fajr."
-            : "\(titleText) is today: \(eventSubTitle)."
+        if dayBefore {
+            content.body = "\(titleText) is tomorrow: \(eventSubTitle)."
+        } else {
+            content.body = beforeFajr
+                ? "\(titleText) is today: \(eventSubTitle). Sent 30 minutes before Fajr."
+                : "\(titleText) is today: \(eventSubTitle)."
+        }
         content.sound = .default
         content.userInfo[Self.intendedFireDateUserInfoKey] = finalDate.timeIntervalSince1970
         #if os(iOS)
@@ -2839,8 +2997,9 @@ extension Settings {
 
         let trigger = UNCalendarNotificationTrigger(dateMatching: gregorianComps, repeats: false)
         // Stable identifier (title + date) so incremental rescheduling updates the same request in place
-        // instead of churning a new UUID every refresh.
-        let id = "Event-\(titleText)-\(gregorianComps.year ?? 0)-\(gregorianComps.month ?? 0)-\(gregorianComps.day ?? 0)"
+        // instead of churning a new UUID every refresh. The day-before variant stays under the "Event-"
+        // prefix so the owned-prefix prune covers it.
+        let id = "Event-\(dayBefore ? "DayBefore-" : "")\(titleText)-\(gregorianComps.year ?? 0)-\(gregorianComps.month ?? 0)-\(gregorianComps.day ?? 0)"
         let request = UNNotificationRequest(
             identifier: id,
             content: content,
