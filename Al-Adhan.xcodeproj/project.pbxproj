@@ -7,6 +7,54 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DE7FDEE7E0D54A44B918ED6C /* ProfanityFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB19711E19C9447F9F0C45E5 /* ProfanityFilter.swift */; };
+		8495F21923F641D3AF4B4E04 /* ProfanityFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB19711E19C9447F9F0C45E5 /* ProfanityFilter.swift */; };
+		2711A2394C8B4FCA9AA6D9DC /* FlowLayoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5AC64B6BA494A37BDD9AC1A /* FlowLayoutView.swift */; };
+		27C8AC78210E431289107503 /* FlowLayoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5AC64B6BA494A37BDD9AC1A /* FlowLayoutView.swift */; };
+		621CBADA87824CDE85505ABE /* SolidPack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E691031FF91438FB277F6B4 /* SolidPack.swift */; };
+		DEB8C14F3AA545418D2DDB5D /* SolidPack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E691031FF91438FB277F6B4 /* SolidPack.swift */; };
+		7FB98BFF56D84DD3B797BBF4 /* RemovalConfirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2BC2821B7D64842A0A374EE /* RemovalConfirmation.swift */; };
+		5DB0E79A00A84C648DE3FBA2 /* RemovalConfirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2BC2821B7D64842A0A374EE /* RemovalConfirmation.swift */; };
+		8C1481BFD05B4C77B8D399B1 /* SolarMoonWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72253BB1301DF29700F19DDC /* SolarMoonWidgets.swift */; };
+		7909433CFCD642C29F7986E8 /* PrayersSplitWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7C13018A6DD00FB1536 /* PrayersSplitWidget.swift */; };
+		32C97ABC820343A7824487E8 /* PrayersProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7BC3018A6DD00FB1536 /* PrayersProvider.swift */; };
+		75999F5261974189A35C7ACF /* PrayersGridWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7C23018A6DD00FB1536 /* PrayersGridWidget.swift */; };
+		7E7EFE1AC10841E8A366F8BB /* PrayerProgressWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7C03018A6DD00FB1536 /* PrayerProgressWidgets.swift */; };
+		FB14D32ACDBE4717A74359BA /* PrayerGradientWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7BF3018A6DD00FB1536 /* PrayerGradientWidget.swift */; };
+		2CB895DA6C8342E3955602DF /* LockScreenPrayerWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7C43018A6DD00FB1536 /* LockScreenPrayerWidget.swift */; };
+		78A10A5C5ECF47769C0474FB /* LockScreenNextWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7C33018A6DD00FB1536 /* LockScreenNextWidget.swift */; };
+		AA9D3A3A1166461696A76175 /* LockScreenLast3Widget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7C63018A6DD00FB1536 /* LockScreenLast3Widget.swift */; };
+		ED9BD619057B4EE4BBF4D894 /* LockScreenFirst3Widget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7C53018A6DD00FB1536 /* LockScreenFirst3Widget.swift */; };
+		702EBFD193D5492BBAA68857 /* CountdownWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7BE3018A6DD00FB1536 /* CountdownWidget.swift */; };
+		182ADAC15E51493CAB12BB3E /* CountdownSimpleWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725BC7BD3018A6DD00FB1536 /* CountdownSimpleWidget.swift */; };
+		46C9E0A3E6D44F6B99973E5B /* NamesDetails.json.xz in Resources */ = {isa = PBXBuildFile; fileRef = 1EA69CF75E6046A6A160419C /* NamesDetails.json.xz */; };
+		DE08F21AD275429882093ECB /* HisnDuas.json.xz in Resources */ = {isa = PBXBuildFile; fileRef = ADC9EF18FC6F4BFC805B9F92 /* HisnDuas.json.xz */; };
+		5033562F91D94964919D6E65 /* DailyReminders.json.xz in Resources */ = {isa = PBXBuildFile; fileRef = 6DEBAB7EA0E04BB588F88F99 /* DailyReminders.json.xz */; };
+		792536D4692142F5BB230510 /* Miracles.json.xz in Resources */ = {isa = PBXBuildFile; fileRef = 2FF1A4D06D394BD093F7304F /* Miracles.json.xz */; };
+		76FCA6D966B549FCBF8BA09C /* WidgetChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C09C49C5A1F409A812B28E4 /* WidgetChrome.swift */; };
+		131D96BC96A44CBEA86704BF /* WidgetChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C09C49C5A1F409A812B28E4 /* WidgetChrome.swift */; };
+		47B316444DF34933A35278F6 /* DateLockWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = EED3F0FB7D644AF8AB5EA7C3 /* DateLockWidgets.swift */; };
+		8BBAD414E5CE43C89C5D3E15 /* DateLockWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = EED3F0FB7D644AF8AB5EA7C3 /* DateLockWidgets.swift */; };
+		ED4613163C0E488AA2965CD8 /* NamesDepth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26CF49CBE4F048BB8C2B1864 /* NamesDepth.swift */; };
+		4B517FF418914E188724AF9D /* IslamSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65D3000684FD4A8A98137AA7 /* IslamSearch.swift */; };
+		FD1477A4ED164C89A62FFEA1 /* IslamSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65D3000684FD4A8A98137AA7 /* IslamSearch.swift */; };
+		F843BEE7D83F402CA544E2A8 /* NamesOfAllahFallback.swift in Sources */ = {isa = PBXBuildFile; fileRef = C70004F9F65948B18EC52BB5 /* NamesOfAllahFallback.swift */; };
+		39F493C4052F4B5A9D1D1FE4 /* NamesOfAllahFallback.swift in Sources */ = {isa = PBXBuildFile; fileRef = C70004F9F65948B18EC52BB5 /* NamesOfAllahFallback.swift */; };
+		BE0199D149AB4BFC98B6A36C /* JournalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB1EF94213FB4C96BF128B27 /* JournalView.swift */; };
+		6A000A72BA0E4CBBB0905CE2 /* JournalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB1EF94213FB4C96BF128B27 /* JournalView.swift */; };
+		3E11A58C376B4FC1967DC087 /* DailyReminders.swift in Sources */ = {isa = PBXBuildFile; fileRef = 870B3481A68B4DCCB1D28820 /* DailyReminders.swift */; };
+		F7B11C8D766449C3AAFD86D1 /* MiraclesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18028E09328A4C0A84F3F82F /* MiraclesView.swift */; };
+		640F37BAC8BE4891B65C39EE /* MiraclesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18028E09328A4C0A84F3F82F /* MiraclesView.swift */; };
+		97DF84241C27436AB837F76C /* WidgetGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A38C8D8F4D4EC3BC58BD11 /* WidgetGalleryView.swift */; };
+		E4D1278DF3A9450AAC152D8A /* ProfileDashboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3124D414068E44FB9362AF71 /* ProfileDashboard.swift */; };
+		1FF5F481390E49A6B2387E4A /* DailyRollover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1950F9C5BC48ED9E0BDE86 /* DailyRollover.swift */; };
+		78CD8888A0644718BE5B5A44 /* DailyRollover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1950F9C5BC48ED9E0BDE86 /* DailyRollover.swift */; };
+		B9ED370EB2BE41DA9AE6C40E /* DailyRollover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1950F9C5BC48ED9E0BDE86 /* DailyRollover.swift */; };
+		BD866B67219C42DEB4DF2351 /* DailyRollover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1950F9C5BC48ED9E0BDE86 /* DailyRollover.swift */; };
+		658A2EC7D08541A1B278586F /* ActivityLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51D19984994142AFAB672BD8 /* ActivityLog.swift */; };
+		CAB3A053DB2E4AE2A76E9BA9 /* ActivityLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51D19984994142AFAB672BD8 /* ActivityLog.swift */; };
+		9A0BEB7366314C52AB554E81 /* ActivityLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51D19984994142AFAB672BD8 /* ActivityLog.swift */; };
+		861124A583954E278DC2EB24 /* ActivityLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51D19984994142AFAB672BD8 /* ActivityLog.swift */; };
 		0005197105C84260A3B0056F /* IslamArticles.json.deflate in Resources */ = {isa = PBXBuildFile; fileRef = BB4DB42447324E3096DB8BF0 /* IslamArticles.json.deflate */; };
 		4E91A75DB2CB4150AEE74952 /* IslamArticles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10F94D16045D47E9A669D87F /* IslamArticles.swift */; };
 		DF7DC71F601E48ACBBB771D8 /* IslamArticles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10F94D16045D47E9A669D87F /* IslamArticles.swift */; };
@@ -343,6 +391,26 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		FB19711E19C9447F9F0C45E5 /* ProfanityFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfanityFilter.swift; sourceTree = "<group>"; };
+		C5AC64B6BA494A37BDD9AC1A /* FlowLayoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowLayoutView.swift; sourceTree = "<group>"; };
+		4E691031FF91438FB277F6B4 /* SolidPack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SolidPack.swift; sourceTree = "<group>"; };
+		D2BC2821B7D64842A0A374EE /* RemovalConfirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemovalConfirmation.swift; sourceTree = "<group>"; };
+		1EA69CF75E6046A6A160419C /* NamesDetails.json.xz */ = {isa = PBXFileReference; lastKnownFileType = file; path = NamesDetails.json.xz; sourceTree = "<group>"; };
+		ADC9EF18FC6F4BFC805B9F92 /* HisnDuas.json.xz */ = {isa = PBXFileReference; lastKnownFileType = file; path = HisnDuas.json.xz; sourceTree = "<group>"; };
+		6DEBAB7EA0E04BB588F88F99 /* DailyReminders.json.xz */ = {isa = PBXFileReference; lastKnownFileType = file; path = DailyReminders.json.xz; sourceTree = "<group>"; };
+		2FF1A4D06D394BD093F7304F /* Miracles.json.xz */ = {isa = PBXFileReference; lastKnownFileType = file; path = Miracles.json.xz; sourceTree = "<group>"; };
+		6C09C49C5A1F409A812B28E4 /* WidgetChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetChrome.swift; sourceTree = "<group>"; };
+		EED3F0FB7D644AF8AB5EA7C3 /* DateLockWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateLockWidgets.swift; sourceTree = "<group>"; };
+		26CF49CBE4F048BB8C2B1864 /* NamesDepth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NamesDepth.swift; sourceTree = "<group>"; };
+		65D3000684FD4A8A98137AA7 /* IslamSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IslamSearch.swift; sourceTree = "<group>"; };
+		C70004F9F65948B18EC52BB5 /* NamesOfAllahFallback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NamesOfAllahFallback.swift; sourceTree = "<group>"; };
+		CB1EF94213FB4C96BF128B27 /* JournalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalView.swift; sourceTree = "<group>"; };
+		870B3481A68B4DCCB1D28820 /* DailyReminders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyReminders.swift; sourceTree = "<group>"; };
+		18028E09328A4C0A84F3F82F /* MiraclesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiraclesView.swift; sourceTree = "<group>"; };
+		66A38C8D8F4D4EC3BC58BD11 /* WidgetGalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetGalleryView.swift; sourceTree = "<group>"; };
+		3124D414068E44FB9362AF71 /* ProfileDashboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileDashboard.swift; sourceTree = "<group>"; };
+		5D1950F9C5BC48ED9E0BDE86 /* DailyRollover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyRollover.swift; sourceTree = "<group>"; };
+		51D19984994142AFAB672BD8 /* ActivityLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLog.swift; sourceTree = "<group>"; };
 		BB4DB42447324E3096DB8BF0 /* IslamArticles.json.deflate */ = {isa = PBXFileReference; lastKnownFileType = file; path = IslamArticles.json.deflate; sourceTree = "<group>"; };
 		10F94D16045D47E9A669D87F /* IslamArticles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IslamArticles.swift; sourceTree = "<group>"; };
 		AE145C975CE24106BEC02321 /* ScholarsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScholarsViews.swift; sourceTree = "<group>"; };
@@ -381,7 +449,6 @@
 		28AA730A1C6946F4A97B3034 /* SummarizeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummarizeSheet.swift; sourceTree = "<group>"; };
 		6D734BE272FE4CBEADB548B4 /* SelectableText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectableText.swift; sourceTree = "<group>"; };
 		5EE0F21400A448B896313C86 /* Warsh.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Warsh.ttf; sourceTree = "<group>"; };
-		E360E322CBA447FFA58CF4AC /* Susi.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Susi.ttf; sourceTree = "<group>"; };
 		720CCE422E3960BB002DD82E /* Globals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Globals.swift; sourceTree = "<group>"; };
 		720DEC642D2456FF006EA342 /* CreditsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreditsView.swift; sourceTree = "<group>"; };
 		72253B32301DC76000F19DDC /* namesofallah.qpk */ = {isa = PBXFileReference; lastKnownFileType = file; path = namesofallah.qpk; sourceTree = "<group>"; };
@@ -535,6 +602,10 @@
 		CFC4D91FB5A84BBF9802A493 /* Islam */ = {
 			isa = PBXGroup;
 			children = (
+				1EA69CF75E6046A6A160419C /* NamesDetails.json.xz */,
+				ADC9EF18FC6F4BFC805B9F92 /* HisnDuas.json.xz */,
+				6DEBAB7EA0E04BB588F88F99 /* DailyReminders.json.xz */,
+				2FF1A4D06D394BD093F7304F /* Miracles.json.xz */,
 				BB4DB42447324E3096DB8BF0 /* IslamArticles.json.deflate */,
 			);
 			path = "Islam";
@@ -587,6 +658,7 @@
 		725BC7C93018A6DD00FB1536 /* Adhan */ = {
 			isa = PBXGroup;
 			children = (
+				EED3F0FB7D644AF8AB5EA7C3 /* DateLockWidgets.swift */,
 				725BC7BC3018A6DD00FB1536 /* PrayersProvider.swift */,
 				725BC7BD3018A6DD00FB1536 /* CountdownSimpleWidget.swift */,
 				72253BB1301DF29700F19DDC /* SolarMoonWidgets.swift */,
@@ -613,7 +685,6 @@
 				C5571F292851476283FB4C7A /* Hijazi3.ttf */,
 				82DC0AA713454A809EAE1635 /* Hijazi.ttf */,
 				5EE0F21400A448B896313C86 /* Warsh.ttf */,
-				E360E322CBA447FFA58CF4AC /* Susi.ttf */,
 				725C5E273013ABBD00DFEC8B /* Uthmani.ttf */,
 				725C5E283013ABBD00DFEC8B /* Indopak.ttf */,
 				725C5E293013ABBD00DFEC8B /* QuranCommon.ttf */,
@@ -632,6 +703,10 @@
 		725C5F133013B90D00DFEC8B /* Helpers */ = {
 			isa = PBXGroup;
 			children = (
+				FB19711E19C9447F9F0C45E5 /* ProfanityFilter.swift */,
+				C5AC64B6BA494A37BDD9AC1A /* FlowLayoutView.swift */,
+				4E691031FF91438FB277F6B4 /* SolidPack.swift */,
+				D2BC2821B7D64842A0A374EE /* RemovalConfirmation.swift */,
 				FB58D61B34D74921A76AB6C2 /* AskAIChat.swift */,
 				28AA730A1C6946F4A97B3034 /* SummarizeSheet.swift */,
 				6D734BE272FE4CBEADB548B4 /* SelectableText.swift */,
@@ -650,6 +725,7 @@
 		72716AF82F946384003F15C1 /* Widget */ = {
 			isa = PBXGroup;
 			children = (
+				6C09C49C5A1F409A812B28E4 /* WidgetChrome.swift */,
 				72716AE82F946384003F15C1 /* Widgets.swift */,
 				725BC7C93018A6DD00FB1536 /* Adhan */,
 			);
@@ -703,6 +779,9 @@
 		72728CBE2B3D1A9600FAA3B3 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				3124D414068E44FB9362AF71 /* ProfileDashboard.swift */,
+				5D1950F9C5BC48ED9E0BDE86 /* DailyRollover.swift */,
+				51D19984994142AFAB672BD8 /* ActivityLog.swift */,
 				4804584314C24FA5842461BD /* ProfileView.swift */,
 				C3BD9A0737054984BFF18500 /* Achievements.swift */,
 				72728CBF2B3D1AA000FAA3B3 /* SettingsView.swift */,
@@ -738,6 +817,7 @@
 		7283C86A301EC74C00AED881 /* Adhan */ = {
 			isa = PBXGroup;
 			children = (
+				66A38C8D8F4D4EC3BC58BD11 /* WidgetGalleryView.swift */,
 				EA69481D09E343CEBD79D876 /* AdhanClipStore.swift */,
 				7283C853301EC74C00AED881 /* AdhanStructs.swift */,
 				7283C854301EC74C00AED881 /* AdhanView.swift */,
@@ -769,6 +849,12 @@
 		7283C87C301EC74C00AED881 /* Islam */ = {
 			isa = PBXGroup;
 			children = (
+				26CF49CBE4F048BB8C2B1864 /* NamesDepth.swift */,
+				65D3000684FD4A8A98137AA7 /* IslamSearch.swift */,
+				C70004F9F65948B18EC52BB5 /* NamesOfAllahFallback.swift */,
+				CB1EF94213FB4C96BF128B27 /* JournalView.swift */,
+				870B3481A68B4DCCB1D28820 /* DailyReminders.swift */,
+				18028E09328A4C0A84F3F82F /* MiraclesView.swift */,
 				10F94D16045D47E9A669D87F /* IslamArticles.swift */,
 				AE145C975CE24106BEC02321 /* ScholarsViews.swift */,
 				B770CDB7FA5948DDBB36888C /* SalafiyyahViews.swift */,
@@ -967,6 +1053,10 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				46C9E0A3E6D44F6B99973E5B /* NamesDetails.json.xz in Resources */,
+				DE08F21AD275429882093ECB /* HisnDuas.json.xz in Resources */,
+				5033562F91D94964919D6E65 /* DailyReminders.json.xz in Resources */,
+				792536D4692142F5BB230510 /* Miracles.json.xz in Resources */,
 				0005197105C84260A3B0056F /* IslamArticles.json.deflate in Resources */,
 				1271A997066049C6A171E5E7 /* Images.xcassets in Resources */,
 				B7AD8953A6BA41249D95AA4B /* Kufi.ttf in Resources */,
@@ -1069,6 +1159,34 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8495F21923F641D3AF4B4E04 /* ProfanityFilter.swift in Sources */,
+				27C8AC78210E431289107503 /* FlowLayoutView.swift in Sources */,
+				DEB8C14F3AA545418D2DDB5D /* SolidPack.swift in Sources */,
+				5DB0E79A00A84C648DE3FBA2 /* RemovalConfirmation.swift in Sources */,
+				8C1481BFD05B4C77B8D399B1 /* SolarMoonWidgets.swift in Sources */,
+				7909433CFCD642C29F7986E8 /* PrayersSplitWidget.swift in Sources */,
+				32C97ABC820343A7824487E8 /* PrayersProvider.swift in Sources */,
+				75999F5261974189A35C7ACF /* PrayersGridWidget.swift in Sources */,
+				7E7EFE1AC10841E8A366F8BB /* PrayerProgressWidgets.swift in Sources */,
+				FB14D32ACDBE4717A74359BA /* PrayerGradientWidget.swift in Sources */,
+				2CB895DA6C8342E3955602DF /* LockScreenPrayerWidget.swift in Sources */,
+				78A10A5C5ECF47769C0474FB /* LockScreenNextWidget.swift in Sources */,
+				AA9D3A3A1166461696A76175 /* LockScreenLast3Widget.swift in Sources */,
+				ED9BD619057B4EE4BBF4D894 /* LockScreenFirst3Widget.swift in Sources */,
+				702EBFD193D5492BBAA68857 /* CountdownWidget.swift in Sources */,
+				182ADAC15E51493CAB12BB3E /* CountdownSimpleWidget.swift in Sources */,
+				76FCA6D966B549FCBF8BA09C /* WidgetChrome.swift in Sources */,
+				47B316444DF34933A35278F6 /* DateLockWidgets.swift in Sources */,
+				ED4613163C0E488AA2965CD8 /* NamesDepth.swift in Sources */,
+				FD1477A4ED164C89A62FFEA1 /* IslamSearch.swift in Sources */,
+				39F493C4052F4B5A9D1D1FE4 /* NamesOfAllahFallback.swift in Sources */,
+				6A000A72BA0E4CBBB0905CE2 /* JournalView.swift in Sources */,
+				3E11A58C376B4FC1967DC087 /* DailyReminders.swift in Sources */,
+				640F37BAC8BE4891B65C39EE /* MiraclesView.swift in Sources */,
+				97DF84241C27436AB837F76C /* WidgetGalleryView.swift in Sources */,
+				E4D1278DF3A9450AAC152D8A /* ProfileDashboard.swift in Sources */,
+				B9ED370EB2BE41DA9AE6C40E /* DailyRollover.swift in Sources */,
+				9A0BEB7366314C52AB554E81 /* ActivityLog.swift in Sources */,
 				DF7DC71F601E48ACBBB771D8 /* IslamArticles.swift in Sources */,
 				00A83AB19620492D973B47D4 /* ScholarsViews.swift in Sources */,
 				3A6C7283DF9D4626B9D103C5 /* SalafiyyahViews.swift in Sources */,
@@ -1158,6 +1276,16 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DE7FDEE7E0D54A44B918ED6C /* ProfanityFilter.swift in Sources */,
+				2711A2394C8B4FCA9AA6D9DC /* FlowLayoutView.swift in Sources */,
+				621CBADA87824CDE85505ABE /* SolidPack.swift in Sources */,
+				7FB98BFF56D84DD3B797BBF4 /* RemovalConfirmation.swift in Sources */,
+				4B517FF418914E188724AF9D /* IslamSearch.swift in Sources */,
+				F843BEE7D83F402CA544E2A8 /* NamesOfAllahFallback.swift in Sources */,
+				BE0199D149AB4BFC98B6A36C /* JournalView.swift in Sources */,
+				F7B11C8D766449C3AAFD86D1 /* MiraclesView.swift in Sources */,
+				BD866B67219C42DEB4DF2351 /* DailyRollover.swift in Sources */,
+				861124A583954E278DC2EB24 /* ActivityLog.swift in Sources */,
 				4E91A75DB2CB4150AEE74952 /* IslamArticles.swift in Sources */,
 				5E7C8CB10DB04EA8813A2791 /* ScholarsViews.swift in Sources */,
 				A34DED1AAC4C41CEB9D12D35 /* SalafiyyahViews.swift in Sources */,
@@ -1239,6 +1367,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				131D96BC96A44CBEA86704BF /* WidgetChrome.swift in Sources */,
+				8BBAD414E5CE43C89C5D3E15 /* DateLockWidgets.swift in Sources */,
+				78CD8888A0644718BE5B5A44 /* DailyRollover.swift in Sources */,
+				CAB3A053DB2E4AE2A76E9BA9 /* ActivityLog.swift in Sources */,
 				115D1610542144D0B957232A /* AdhanClipStore.swift in Sources */,
 				7283C8D7301EC89500AED881 /* MoonPhase.swift in Sources */,
 				725BC7CA3018A6DD00FB1536 /* PrayersProvider.swift in Sources */,
@@ -1272,6 +1404,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1FF5F481390E49A6B2387E4A /* DailyRollover.swift in Sources */,
+				658A2EC7D08541A1B278586F /* ActivityLog.swift in Sources */,
 				5C23950AEF0641F3805EBD19 /* AdhanClipStore.swift in Sources */,
 				725BC7D73018A6E500FB1536 /* PrayersProvider.swift in Sources */,
 				728E2EEE2E6E048300F2C24C /* SettingsAdhan.swift in Sources */,
@@ -1465,7 +1599,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.6.3;
+				MARKETING_VERSION = 2.6.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1501,7 +1635,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.6.3;
+				MARKETING_VERSION = 2.6.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1532,7 +1666,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.6.3;
+				MARKETING_VERSION = 2.6.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times.watchkitapp";
 				PRODUCT_NAME = "Al-Adhan";
 				SDKROOT = watchos;
@@ -1566,7 +1700,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.6.3;
+				MARKETING_VERSION = 2.6.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times.watchkitapp";
 				PRODUCT_NAME = "Al-Adhan";
 				SDKROOT = watchos;
@@ -1596,7 +1730,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 2.6.3;
+				MARKETING_VERSION = 2.6.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times.Widget";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1624,7 +1758,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 2.6.3;
+				MARKETING_VERSION = 2.6.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times.Widget";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1652,7 +1786,7 @@
 					"@executable_path/../../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MARKETING_VERSION = 2.6.3;
+				MARKETING_VERSION = 2.6.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times.watchkitapp.Complication1";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
@@ -1682,7 +1816,7 @@
 					"@executable_path/../../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MARKETING_VERSION = 2.6.3;
+				MARKETING_VERSION = 2.6.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times.watchkitapp.Complication1";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;

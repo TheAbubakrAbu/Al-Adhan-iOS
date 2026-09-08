@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct TajweedFoundationsView: View {
+    #if DEBUG
+    #endif
     @ObservedObject var settings = Settings.shared
 
     private let topics: [String] = [

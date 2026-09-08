@@ -1,3 +1,35 @@
+# Version 2.6.4
+
+A daily reminder card, a journal, the 99 Names in depth, the miracles of the Quran, and a gallery that shows every widget before you place it.
+
+Reminder of the Day:
+- One card a day at the top of the Islam tab: a verse, a hadith, a sunnah, a dua, a dhikr, or a Name of Allah.
+- It opens once when you first open the app that day, and you can keep any card as a saved reflection.
+- The day turns over at Fajr from your own prayer times, so a card read at 3 AM is still yesterday's.
+
+Journal:
+- Write what you are sitting with, tag it, and find it again by tag or by search.
+- Attach a dua from the app's collections to any entry.
+
+Widgets:
+- A widget gallery inside the app: see every widget at its real size, in your own colors, before you place it.
+- Four new lock screen widgets: the next prayer with the date and city, both calendars side by side, and the Hijri date in English and in Arabic.
+
+Islamic Tools:
+- The 99 Names in depth: what each name means, what living by it asks, and the names it goes by.
+- Miracles of the Quran: a library of articles on what the Quran said before it could be known.
+- Hisn al-Muslim, the fortress of the Muslim, with audio for every dua.
+- Search the whole Islam tab at once.
+
+Ask AI:
+- A redesigned welcome that says plainly how the answer is put together, and what it is not allowed to do.
+- Today's prayer times are pulled in only when the question is actually about when to pray.
+
+Your Progress:
+- A daily activity dashboard: your dhikr as rings, with a streak.
+
+Bug fixes and optimizations throughout.
+
 # Version 2.6.3
 
 Ask AI that knows your prayer times, a clearer prayer tracker, a much deeper Islam tab, and an app 7 MB smaller.

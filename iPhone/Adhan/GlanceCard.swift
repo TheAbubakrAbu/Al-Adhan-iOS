@@ -11,6 +11,12 @@ import Adhan
 /// sunrise) are dropped rather than shown as "Unavailable", so the card never pads itself with dead cells.
 struct GlanceCard: View {
     @ObservedObject private var settings = Settings.shared
+    /// Prayer times and the location publish from `LiveState`, not `Settings` (see its comment).
+    @ObservedObject private var live = LiveState.shared
+
+    /// Every tile is a button (Abu, 2026-09-04: "when you click on certain ones have it do a certain
+    /// thing"); the card only names what was tapped and the Adhan tab decides what opens.
+    var onSelect: (GlanceAction) -> Void = { _ in }
 
     private static let kaaba = CLLocation(latitude: 21.4225, longitude: 39.8262)
 
@@ -20,9 +26,12 @@ struct GlanceCard: View {
     ]
 
     var body: some View {
+        let _ = RenderCounter.hit("GlanceCard")
+        let accent = settings.accentColor.color
         LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
             ForEach(tiles) { tile in
-                GlanceTile(tile: tile)
+                GlanceTile(tile: tile, accent: accent, onSelect: onSelect)
+                    .equatable()
             }
         }
         .padding(.vertical, 2)
@@ -34,40 +43,46 @@ struct GlanceCard: View {
         var items: [GlanceItem] = []
 
         items.append(.init(icon: "location.fill", title: "Current Location",
-                           value: settings.currentLocation?.city ?? "Unavailable"))
+                           value: live.currentLocation?.city ?? "Unavailable", action: .cityPrayerTimes))
 
-        items.append(.init(icon: "function", title: "Prayer Calculation", value: calculationSummary))
+        items.append(.init(icon: "function", title: "Prayer Calculation", value: calculationSummary,
+                           action: .prayerCalculation))
 
-        if let qibla = qiblaSummary {
+        let qibla = qiblaSummary
+        let makkah = distanceToMakkah
+        if let qibla {
             items.append(.init(icon: "location.north.line.fill", title: "Qibla", value: qibla,
-                               iconRotation: qiblaBearing))
+                               iconRotation: qiblaBearing, action: .qibla(bearing: qibla, distance: makkah)))
         }
-        if let makkah = distanceToMakkah {
-            items.append(.init(icon: "building.columns.fill", title: "Distance to Makkah", value: makkah))
+        if let makkah {
+            items.append(.init(icon: "building.columns.fill", title: "Distance to Makkah", value: makkah,
+                               action: .qibla(bearing: qibla, distance: makkah)))
         }
         if let daylight = daylightSummary {
-            items.append(.init(icon: "sun.max.fill", title: "Daylight", value: daylight))
+            items.append(.init(icon: "sun.max.fill", title: "Daylight", value: daylight, action: .prayerCalendar))
         }
         if let fast = fastingWindow {
-            items.append(.init(icon: "fork.knife", title: "Fasting Window", value: fast))
+            items.append(.init(icon: "fork.knife", title: "Fasting Window", value: fast, action: .prayerCalendar))
         }
         if let night = nightSummary {
-            items.append(.init(icon: "moon.zzz.fill", title: "Night", value: night))
+            items.append(.init(icon: "moon.zzz.fill", title: "Night", value: night, action: .prayerCalendar))
         }
 
-        items.append(.init(icon: "moon.stars.fill", title: "Moon", value: moonSummary, showsMoonPhase: true))
+        items.append(.init(icon: "moon.stars.fill", title: "Moon", value: moonSummary, showsMoonPhase: true,
+                           action: .hijriCalendar))
 
         if let event = nextEventSummary {
-            items.append(.init(icon: "calendar", title: "Next Islamic Date", value: event))
+            items.append(.init(icon: "calendar", title: "Next Islamic Date", value: event, action: .hijriCalendar))
         }
         if let home = settings.homeLocation {
-            items.append(.init(icon: "house.fill", title: "Home Location", value: home.city))
+            items.append(.init(icon: "house.fill", title: "Home Location", value: home.city, action: .homeLocation))
             if let travel = travelSummary {
-                items.append(.init(icon: "airplane", title: "Distance From Home", value: travel))
+                items.append(.init(icon: "airplane", title: "Distance From Home", value: travel,
+                                   action: .travelingMode))
             }
         }
 
-        items.append(.init(icon: "clock.fill", title: "Time Zone", value: timeZoneSummary))
+        items.append(.init(icon: "clock.fill", title: "Time Zone", value: timeZoneSummary, action: .cityPrayerTimes))
         return items
     }
 
@@ -162,7 +177,8 @@ struct GlanceCard: View {
     }
 
     private var moonSummary: String {
-        let phase = MoonPhase.on(Date())
+        // The hour-quantized phase shares the sky card's memo entry instead of evicting it.
+        let phase = MoonPhase.onCurrentHour()
         return "\(phase.name)\n\(phase.illuminationPercent)% illuminated"
     }
 
@@ -234,7 +250,7 @@ struct GlanceCard: View {
     // MARK: - Helpers
 
     private var validCoordinate: CLLocationCoordinate2D? {
-        guard let location = settings.currentLocation,
+        guard let location = live.currentLocation,
               location.latitude != 1000, location.longitude != 1000
         else { return nil }
         return CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude)
@@ -281,7 +297,27 @@ struct GlanceCard: View {
     }
 }
 
-struct GlanceItem: Identifiable {
+/// What a glance tile opens when tapped. Named by destination, not by tile, because several tiles
+/// share one: the three sun tiles open the prayer calendar, the Moon and Next Islamic Date the
+/// Hijri calendar, the location and time-zone tiles the City Prayer Times sheet.
+enum GlanceAction: Hashable {
+    /// The City Prayer Times sheet (the same one the city pill at the top opens).
+    case cityPrayerTimes
+    /// The Adhan settings sheet, opened straight onto Prayer Calculation.
+    case prayerCalculation
+    /// The big compass, with the bearing and distance the tiles showed.
+    case qibla(bearing: String?, distance: String?)
+    /// The prayer times calendar (Daylight, Night and the Fasting Window are read off it).
+    case prayerCalendar
+    /// The Hijri calendar with its events.
+    case hijriCalendar
+    /// The home location picker.
+    case homeLocation
+    /// The Adhan settings sheet, opened straight onto Traveling Mode.
+    case travelingMode
+}
+
+struct GlanceItem: Identifiable, Equatable {
     let icon: String
     let title: String
     let value: String
@@ -289,16 +325,41 @@ struct GlanceItem: Identifiable {
     var iconRotation: Double? = nil
     /// The Moon tile draws the real lit-limb phase glyph instead of a symbol.
     var showsMoonPhase: Bool = false
+    /// What a tap opens.
+    var action: GlanceAction = .cityPrayerTimes
 
     var id: String { title }
 }
 
-private struct GlanceTile: View {
-    @ObservedObject private var settings = Settings.shared
-
+/// An Equatable leaf: eleven of these sit in the grid, and each used to observe the whole `Settings`
+/// object for the accent alone. The parent passes the accent as a plain value, so `==` folds every
+/// input the body reads (the tile's strings and the accent); the glass modifier reads its own
+/// environment and re-runs on a theme change by itself. The tap closure is not compared: it is the
+/// parent's stable handler, and a closure has no equality anyway.
+private struct GlanceTile: View, Equatable {
     let tile: GlanceItem
+    let accent: Color
+    let onSelect: (GlanceAction) -> Void
+
+    static func == (lhs: GlanceTile, rhs: GlanceTile) -> Bool {
+        lhs.tile == rhs.tile && lhs.accent == rhs.accent
+    }
 
     var body: some View {
+        let _ = RenderCounter.hit("GlanceTile")
+        Button {
+            Settings.shared.hapticFeedback()
+            onSelect(tile.action)
+        } label: {
+            tileBody
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(tile.title). \(tile.value.replacingOccurrences(of: "\n", with: ", "))")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private var tileBody: some View {
         // The value's FIRST line is the tile's headline; anything after is context. They used to
         // render identically, which made "14h 5m" and "-1 min vs yesterday" fight for attention.
         let lines = tile.value.split(separator: "\n", maxSplits: 1).map(String.init)
@@ -310,14 +371,14 @@ private struct GlanceTile: View {
                 Group {
                     if tile.showsMoonPhase {
                         // The REAL moon, exactly as lit tonight - the same glyph the sky card draws.
-                        let phase = MoonPhase.on(Date())
+                        let phase = MoonPhase.onCurrentHour()
                         MoonPhaseGlyph(illumination: phase.illumination, isWaxing: phase.isWaxing)
-                            .foregroundColor(settings.accentColor.color)
+                            .foregroundColor(accent)
                             .frame(width: 13, height: 13)
                     } else {
                         Image(systemName: tile.icon)
                             .font(.caption2)
-                            .foregroundStyle(settings.accentColor.color)
+                            .foregroundStyle(accent)
                             // The Qibla arrow points at the actual bearing.
                             .rotationEffect(.degrees(tile.iconRotation ?? 0))
                     }
@@ -349,9 +410,8 @@ private struct GlanceTile: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .conditionalGlassEffect(rectangle: true, useColor: 0.15)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(tile.title). \(tile.value.replacingOccurrences(of: "\n", with: ", "))")
+        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .conditionalGlassEffect(rectangle: true, useColor: 0.15, flat: true)
     }
 
     /// The headline in semibold primary; the detail (when present) as a caption-secondary second

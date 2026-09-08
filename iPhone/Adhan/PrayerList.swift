@@ -5,6 +5,8 @@ import SwiftUI
 /// two are the same color and this looks exactly as it always did.
 struct PrayerList: View {
     @ObservedObject private var settings = Settings.shared
+    /// Prayer times and the location publish from `LiveState`, not `Settings` (see its comment).
+    @ObservedObject private var live = LiveState.shared
     @Environment(\.scenePhase) private var scenePhase
     // The HIGHLIGHT slice of the scrubber, not the scrubber itself: `ScrubHighlight` publishes only when
     // the prayer under the thumb changes (a handful of times per drag). Observing `DayScrubber` here made
@@ -105,11 +107,11 @@ struct PrayerList: View {
     }
 
     /// Prayer times for an arbitrary day, computed on demand. Today reuses the already-fetched
-    /// `settings.prayers`; any other day is generated directly (the generator is cached and fast).
+    /// `live.prayers`; any other day is generated directly (the generator is cached and fast).
     /// Computing this purely from `date` - instead of relying on `onChange` to populate published
     /// state - is what makes selecting a different day reliably refresh every display mode.
     private func prayers(for date: Date) -> [Prayer] {
-        if Calendar.current.isDate(date, inSameDayAs: Date()), let prayers = settings.prayers {
+        if Calendar.current.isDate(date, inSameDayAs: Date()), let prayers = live.prayers {
             let base = fullPrayers ? prayers.fullPrayers : prayers.prayers
             return mergedWithOptional(base, for: prayers.day)
         }
@@ -127,7 +129,9 @@ struct PrayerList: View {
     }
 
     var body: some View {
-        if settings.prayers != nil {
+        let _ = RenderCounter.hit("PrayerList")
+        let _ = ChangePrinter.hit(Self.self)
+        if live.prayers != nil {
             prayerListSection
         }
     }
@@ -160,7 +164,7 @@ struct PrayerList: View {
             }
         }
         // The stored `prayers` object still carries YESTERDAY's date (and times). `currentPrayer` heals
-        // itself via the countdown's boundary timeline, but the displayed list served `settings.prayers`
+        // itself via the countdown's boundary timeline, but the displayed list served `live.prayers`
         // as "today" until the app was next backgrounded and reopened - an app left foregrounded past
         // midnight showed yesterday's times all night. The fetch's own `staleDate` check makes this a
         // no-op whenever the stored day is somehow already correct.
@@ -279,7 +283,7 @@ struct PrayerList: View {
     private func rakaahGuideCell(_ lines: [String]) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             if lines.isEmpty {
-                Text("—")
+                Text("None")
                     .foregroundColor(.secondary.opacity(0.5))
             } else {
                 ForEach(lines, id: \.self) { line in
@@ -368,7 +372,7 @@ struct PrayerList: View {
             #if os(iOS)
             Spacer()
 
-            Picker("", selection: $prayerDisplayModeRawValue.animation(.easeInOut)) {
+            Picker("", selection: $prayerDisplayModeRawValue) {
                 Section {
                     ForEach(PrayerDisplayMode.allCases) { mode in
                         Text(mode.displayName).tag(mode.rawValue)
@@ -423,6 +427,7 @@ struct PrayerList: View {
                 displayName: listDisplayName(for: prayer),
                 isCurrent: isCurrent,
                 iconColor: listIconColor,
+                highlight: settings.accentColor.accent2.opacity(0.25),
                 trailingContent: {
                     #if os(iOS)
                     prayerBell(for: prayer, rowColor: .primary)
@@ -546,18 +551,33 @@ struct PrayerList: View {
             repeating: GridItem(.flexible(), spacing: tileSpacing),
             count: columnCount
         )
+        // Once per grid, not per tile: the highlighted prayer, its index in this list and the accent.
+        let currentName = currentPrayerName
+        let currentIndex = prayers.firstIndex { $0.nameTransliteration == live.currentPrayer?.nameTransliteration }
+        let accent = settings.accentColor.accent2
 
+        // Not wrapped in an iOS 26 `GlassEffectContainer`: tried, and it re-rendered the tiles flatter
+        // and dropped the current tile's glow. The flat pre-26 fill below is the win that matters
+        // (the A11-A13 devices that stutter never run iOS 26).
         LazyVGrid(columns: columns, spacing: tileSpacing) {
-            ForEach(prayers, id: \.stableDisplayID) { prayer in
-                let color: Color = isComparisonBaseline ? .secondary : (highlightsCurrent ? prayerColor(for: prayer, in: prayers) : .primary)
-                let isCurrent = highlightsCurrent && !isComparisonBaseline && isCurrentPrayer(prayer)
+            ForEach(Array(prayers.enumerated()), id: \.element.stableDisplayID) { index, prayer in
+                let color: Color = isComparisonBaseline
+                    ? .secondary
+                    : (highlightsCurrent ? prayerColor(at: index, currentIndex: currentIndex, accent: accent) : .primary)
+                let isCurrent = highlightsCurrent && !isComparisonBaseline
+                    && (currentName?.contains(prayer.nameTransliteration) ?? false)
 
                 VStack(alignment: .leading, spacing: 2) {
                     #if os(watchOS)
                     HStack(spacing: 3) {
-                        Image(systemName: prayer.image)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(color)
+                        // The 40 mm face leaves a half-width tile about 46 pt for the name beside the
+                        // icon, and "Shurooq" / "Maghrib" truncated there; the icon steps aside on that
+                        // face so the name keeps its size (the time line still carries the tint).
+                        if !WatchScreen.isNarrow {
+                            Image(systemName: prayer.image)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(color)
+                        }
 
                         // The name owns the line: a fixed-size icon plus layoutPriority keeps a long
                         // name ("Shurooq") from being the one tile that scales to a sliver while its
@@ -565,7 +585,7 @@ struct PrayerList: View {
                         Text(prayer.compactDisplayName)
                             .font(.caption.weight(.semibold))
                             .foregroundColor(color)
-                            .minimumScaleFactor(0.8)
+                            .minimumScaleFactor(WatchScreen.isNarrow ? 0.7 : 0.8)
                             .layoutPriority(1)
                     }
 
@@ -604,12 +624,13 @@ struct PrayerList: View {
                     clear: !isCurrent,
                     rectangle: true,
                     useColor: isCurrent ? 0.25 : nil,
-                    customTint: isCurrent ? settings.accentColor.accent2 : nil
+                    customTint: isCurrent ? accent : nil,
+                    flat: true
                 )
                 // The soft accent glow lifts the current prayer's tile off the board - the tint said
                 // "different", the glow says "now".
-                .shadow(color: isCurrent ? settings.accentColor.accent2.opacity(0.35) : .clear,
-                        radius: isCurrent ? 8 : 0, x: 0, y: 2)
+                .softShadow(color: isCurrent ? accent.opacity(0.35) : .clear,
+                            radius: isCurrent ? 8 : 0, x: 0, y: 2)
                 .contentShape(Rectangle())
                 .onTapGesture {
                     togglePrayerExpansion(for: prayer)
@@ -688,10 +709,11 @@ struct PrayerList: View {
             }
             #if os(iOS)
             .sheet(isPresented: $showTravelingModeSettings) {
-                NavigationView {
+                // A stack container, so the sheet opens straight onto Traveling Mode (see
+                // `SheetNavigationContainer`).
+                SheetNavigationContainer {
                     SettingsAdhanView(showNotifications: false, presentedAsSheet: true, openTravelingMode: true)
                 }
-                .navigationViewStyle(.stack)
                 .smallMediumSheetPresentation()
             }
             #endif
@@ -745,11 +767,11 @@ struct PrayerList: View {
         #if os(watchOS)
         // No Travel Settings button on the watch - the pointer would dangle.
         let homeSentence = (homeCity?.isEmpty == false)
-            ? "Your home city is \(homeCity!) - you can change it in the iPhone app's Travel Settings."
+            ? "Your home city is \(homeCity!). You can change it in the iPhone app's Travel Settings."
             : "You can set your home city in the iPhone app's Travel Settings."
         #else
         let homeSentence = (homeCity?.isEmpty == false)
-            ? "Your home city is \(homeCity!) - you can change it by tapping Travel Settings below."
+            ? "Your home city is \(homeCity!). You can change it by tapping Travel Settings below."
             : "You can set your home city by tapping Travel Settings below."
         #endif
         return Text("Traveling mode is on. If you are traveling more than 48 mi from home, you can pray Qasr, where you shorten and combine prayers. \(homeSentence)")
@@ -807,9 +829,20 @@ struct PrayerList: View {
 
     /// While the sun is being dragged along `SkyView`'s arc, the highlight follows the dragged moment rather
     /// than the live one, so scrubbing the day walks it down the rows.
+    private var currentPrayerName: String? {
+        (scrubHighlight.previewPrayer ?? live.currentPrayer)?.nameTransliteration
+    }
+
     private func isCurrentPrayer(_ prayer: Prayer) -> Bool {
-        let reference = scrubHighlight.previewPrayer ?? settings.currentPrayer
-        return reference?.nameTransliteration.contains(prayer.nameTransliteration) ?? false
+        currentPrayerName?.contains(prayer.nameTransliteration) ?? false
+    }
+
+    /// `prayerColor(for:in:)` with the two index lookups hoisted out of the per-tile closure.
+    private func prayerColor(at index: Int, currentIndex: Int?, accent: Color) -> Color {
+        guard let currentIndex else { return .secondary }
+        if index < currentIndex { return .secondary }
+        if index == currentIndex { return accent }
+        return .primary
     }
 
     private func prayerColor(for prayer: Prayer, in prayers: [Prayer]) -> Color {
@@ -817,7 +850,7 @@ struct PrayerList: View {
             return .secondary
         }
 
-        guard let currentPrayerIndex = prayers.firstIndex(where: { $0.nameTransliteration == settings.currentPrayer?.nameTransliteration }) else {
+        guard let currentPrayerIndex = prayers.firstIndex(where: { $0.nameTransliteration == live.currentPrayer?.nameTransliteration }) else {
             return .secondary
         }
 
@@ -831,7 +864,7 @@ struct PrayerList: View {
     }
 
     private func legacyGridPrayerColor(for prayer: Prayer, in prayers: [Prayer]) -> Color {
-        guard let currentPrayer = settings.currentPrayer else {
+        guard let currentPrayer = live.currentPrayer else {
             return .secondary
         }
 
@@ -1002,7 +1035,7 @@ struct PrayerList: View {
             .rotationEffect(bellRotation(for: prayer))
             .contentShape(Rectangle())
             .padding(4)
-            .conditionalGlassEffect()
+            .conditionalGlassEffect(flat: true)
             .onTapGesture {
                 settings.hapticFeedback()
                 triggerBellAnimation(for: prayer)
@@ -1041,19 +1074,20 @@ struct PrayerList: View {
     }
 }
 
+/// A leaf that observes nothing: the highlight colour comes in as a value from the list, which
+/// already observes `Settings`.
 private struct PrayerListRowCard<TrailingContent: View>: View {
-    @ObservedObject private var settings = Settings.shared
-
     let prayer: Prayer
     let displayName: String
     let isCurrent: Bool
     let iconColor: Color
+    let highlight: Color
     @ViewBuilder let trailingContent: () -> TrailingContent
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 20)
-                .fill(isCurrent ? settings.accentColor.accent2.opacity(0.25) : .clear)
+                .fill(isCurrent ? highlight : .clear)
                 #if os(iOS)
                 .padding(.vertical, backgroundVerticalPadding)
                 .padding(.horizontal, -12)

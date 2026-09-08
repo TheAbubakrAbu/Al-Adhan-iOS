@@ -137,10 +137,9 @@ extension Settings {
     /// The current statistics, recomputed only when the underlying data actually changed.
     var trackerStats: PrayerTrackerStats {
         var hasher = Hasher()
-        hasher.combine(prayerTrackerData)
-        hasher.combine(trackerExemptDaysData)
-        hasher.combine(mensesPauseActive)
-        hasher.combine(mensesPauseStartStamp)
+        // The write counter the four tracker fields bump (see `bumpTrackerGeneration`), instead of
+        // hashing years of marks on every render that asks.
+        hasher.combine(trackerGeneration)
         // The day rolling over changes today-dependent numbers even with identical data.
         hasher.combine(Calendar.current.startOfDay(for: Date()))
         let stamp = hasher.finalize()
@@ -334,7 +333,7 @@ private struct TrackerPrayerToggle: View {
                                     endPoint: .bottomTrailing
                                 )
                             )
-                            .shadow(color: tint.opacity(0.4), radius: 6, x: 0, y: 2)
+                            .softShadow(color: tint.opacity(0.4), radius: 6, x: 0, y: 2)
 
                         Image(systemName: mark.symbol)
                             .font(.subheadline.weight(.bold))
@@ -380,13 +379,16 @@ private struct TrackerPrayerToggle: View {
 /// an inline closure of an already-deep view tree.
 struct PrayerTrackerSection: View {
     @ObservedObject private var settings = Settings.shared
+    /// Prayer times and the location publish from `LiveState`, not `Settings` (see its comment).
+    @ObservedObject private var live = LiveState.shared
 
     private var todaySlots: [Prayer] {
         settings.trackableSlots(for: Date())
     }
 
     var body: some View {
-        if settings.prayers != nil {
+        let _ = RenderCounter.hit("PrayerTrackerSection")
+        if live.prayers != nil {
             Section(header: header) {
                 if settings.isTrackerExempt(on: Date()) {
                     pausedCard
@@ -557,18 +559,21 @@ struct PrayerTrackerView: View {
             // Plain stacks, not a lazy grid: four tiles inside one List row have nothing to be lazy
             // about, and a lazy container's own diffing is one more moving part inside a row.
             VStack(spacing: 10) {
+                // Each pair sized by its taller tile (the tiles fill the row's height).
                 HStack(spacing: 10) {
                     statTile(value: "\(stats.currentStreak)", unit: stats.currentStreak == 1 ? "day" : "days",
                              label: "Current Streak", symbol: "flame.fill")
                     statTile(value: "\(stats.bestStreak)", unit: stats.bestStreak == 1 ? "day" : "days",
                              label: "Best Streak", symbol: "trophy.fill")
                 }
+                .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 10) {
                     statTile(value: "\(stats.perfectDays)", unit: stats.perfectDays == 1 ? "day" : "days",
                              label: "Perfect Days", symbol: "star.fill")
                     statTile(value: "\(stats.totalPrayed)", unit: "prayers",
                              label: "Prayers Logged", symbol: "checkmark.seal.fill")
                 }
+                .fixedSize(horizontal: false, vertical: true)
                 if stats.onTimeCount + stats.lateCount + stats.missedCount > 0 {
                     markBreakdown(stats)
                 }
@@ -596,7 +601,10 @@ struct PrayerTrackerView: View {
                 Text(label.uppercased())
                     .font(.caption2.weight(.semibold))
                     .foregroundColor(.secondary)
-                    .lineLimit(1)
+                    // Wraps to a second line at the large text sizes ("CURRENT STR..." before), and
+                    // only then scales.
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                     .minimumScaleFactor(0.7)
             }
 
@@ -610,7 +618,8 @@ struct PrayerTrackerView: View {
                     .foregroundColor(.secondary)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // Fills the row's height too, so a wrapped caption never leaves its neighbour a shorter tile.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(12)
         .conditionalGlassEffect(rectangle: true)
     }
@@ -974,9 +983,21 @@ struct PrayerTrackerView: View {
         var counts: Bool { !isFuture && !exempt }
     }
 
+    /// Memo for `dayRecords`, keyed on the tracker write counter and the civil day. The year view asks
+    /// for twelve months of records on every render, and the month and week views for theirs; the
+    /// answer changes only when a mark is written or the day rolls over.
+    private static var dayRecordsMemo: (generation: Int, day: Date, records: [String: [DayRecord]]) = (-1, .distantPast, [:])
+
     private func dayRecords(from start: Date, count: Int) -> [DayRecord] {
-        let snapshot = settings.trackerSnapshot()
         let today = calendar.startOfDay(for: Date())
+        let generation = settings.trackerGeneration
+        if Self.dayRecordsMemo.generation != generation || Self.dayRecordsMemo.day != today {
+            Self.dayRecordsMemo = (generation, today, [:])
+        }
+        let memoKey = "\(start.timeIntervalSinceReferenceDate)-\(count)"
+        if let cached = Self.dayRecordsMemo.records[memoKey] { return cached }
+
+        let snapshot = settings.trackerSnapshot()
         let formatter = PrayerTrackerStats.dayKeyFormatter
 
         var records: [DayRecord] = []
@@ -994,6 +1015,7 @@ struct PrayerTrackerView: View {
             // at 01:00, which then mis-flags today as future and feeds the grids drifting dates.
             day = calendar.startOfDay(for: next)
         }
+        Self.dayRecordsMemo.records[memoKey] = records
         return records
     }
 

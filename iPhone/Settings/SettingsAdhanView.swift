@@ -28,12 +28,24 @@ struct SettingsAdhanView: View {
     private let presentedAsSheet: Bool
     /// Lands straight on the Traveling Mode screen - for the prayer list's Qasr footer, whose whole point is
     /// "take me to where I can turn this off".
-    @State private var openTravelingMode: Bool
+    /// The programmatic entrances: Traveling Mode (its dialog, the prayer list's row, the Distance
+    /// From Home glance tile) and Prayer Calculation (its glance tile). The request is remembered
+    /// and the push is raised a beat after appear: iOS 16+ pushes through
+    /// `navigationDestination(isPresented:)` (a `NavigationStack`), iOS 15 through the hidden
+    /// `isActive` links in the sections below, and either one set true before the container has
+    /// mounted never pushes (2026-09-05, seen on iOS 26).
+    private let requestedTravelingMode: Bool
+    private let requestedPrayerCalculation: Bool
+    @State private var openTravelingMode = false
+    @State private var openPrayerCalculation = false
+    @State private var deepLinkFired = false
 
-    init(showNotifications: Bool, presentedAsSheet: Bool = false, openTravelingMode: Bool = false) {
+    init(showNotifications: Bool, presentedAsSheet: Bool = false, openTravelingMode: Bool = false,
+         openPrayerCalculation: Bool = false) {
         self._showNotifications = State(initialValue: showNotifications)
         self.presentedAsSheet = presentedAsSheet
-        self._openTravelingMode = State(initialValue: openTravelingMode)
+        self.requestedTravelingMode = openTravelingMode
+        self.requestedPrayerCalculation = openPrayerCalculation
     }
 
     private var dialogTitle: String {
@@ -57,22 +69,24 @@ struct SettingsAdhanView: View {
                     adhanSettingsLink(title: "Prayer Calculation", systemImage: "function") {
                         prayerCalculationDestination
                     }
+                    #if os(iOS)
+                    // The iOS 15 programmatic entrance (see `requestedPrayerCalculation`).
+                    .modifier(LegacyProgrammaticLink(isActive: $openPrayerCalculation) {
+                        prayerCalculationDestination
+                    })
+                    #endif
                 }
                 Section {
                     adhanSettingsLink(title: "Traveling Mode", systemImage: "airplane") {
                         travelingModeDestination
                     }
-                    // The programmatic entrance to the same screen (see `openTravelingMode`). A hidden
-                    // isActive link rather than a nav-path push because this view still supports the
-                    // pre-NavigationStack containers it is presented in. iOS-only: the watch never
-                    // opens this programmatically, and `isActive:` is deprecated on watchOS 9+.
+                    // The iOS 15 programmatic entrance (see `requestedTravelingMode`). iOS-only: the
+                    // watch never opens this programmatically, and `isActive:` is deprecated on
+                    // watchOS 9+.
                     #if os(iOS)
-                    .background(
-                        NavigationLink(isActive: $openTravelingMode) {
-                            travelingModeDestination
-                        } label: { EmptyView() }
-                        .hidden()
-                    )
+                    .modifier(LegacyProgrammaticLink(isActive: $openTravelingMode) {
+                        travelingModeDestination
+                    })
                     #endif
                 }
                 Section {
@@ -102,6 +116,7 @@ struct SettingsAdhanView: View {
                         Text("The sun on today's arc, the moon at its true phase, and the stars at night. Drag the sun to see any moment of the day. Turn it off for a plain Current/Upcoming card.")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                             .padding(.vertical, 2)
                     }
 
@@ -117,6 +132,22 @@ struct SettingsAdhanView: View {
             .themedListRowBackground()
         }
         .applyConditionalListStyle()
+        #if os(iOS)
+        .modifier(ProgrammaticDestinations(
+            openTravelingMode: $openTravelingMode,
+            openPrayerCalculation: $openPrayerCalculation,
+            travelingMode: { AnyView(travelingModeDestination) },
+            prayerCalculation: { AnyView(prayerCalculationDestination) }
+        ))
+        .onAppear {
+            guard !deepLinkFired, requestedTravelingMode || requestedPrayerCalculation else { return }
+            deepLinkFired = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                if requestedTravelingMode { openTravelingMode = true }
+                if requestedPrayerCalculation { openPrayerCalculation = true }
+            }
+        }
+        #endif
         .compactListSectionSpacing()
         .navigationTitle("Al-Adhan Settings")
         #if os(iOS)
@@ -337,7 +368,7 @@ struct SettingsAdhanView: View {
     private var notificationsSection: some View {
         #if os(iOS)
         Section {
-            NavigationLink(destination: NotificationView()) {
+            NavigationLink(destination: LazyDestination { NotificationView() }) {
                 Label("Notification Settings", systemImage: "bell.badge")
             }
         }
@@ -384,6 +415,7 @@ struct SettingsAdhanView: View {
                     Text(subtitle)
                         .font(.caption)
                         .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.vertical, 2)
                 }
             }
@@ -469,6 +501,7 @@ struct SettingsAdhanView: View {
             Text("If you are traveling more than 48 mi (77.25 km), then it is obligatory to pray Qasr, where you combine Dhuhr and Asr (2 rakahs each) and Maghrib and Isha (3 and 2 rakahs). Allah said in the Quran, “When you travel through the land, it is permissible for you to shorten the prayer” [Quran 4:101]. \(settings.travelAutomatic ? "This feature turns on and off automatically, but you can also control it manually here." : "You can control traveling mode manually here.")")
                 .font(.caption)
                 .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.vertical, 2)
             #endif
         }
@@ -632,11 +665,13 @@ struct PrayerOffsetsView: View {
                 Text("When enabled, the displayed Hijri date changes at the calculated Maghrib time instead of at midnight. Off by default.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.vertical, 2)
 
                 Text("In Islam, the day begins at sunset (Maghrib). Keeping this on follows that Islamic tradition, while turning it off matches the usual midnight-to-midnight day.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.vertical, 2)
             }
         }
@@ -652,11 +687,13 @@ struct PrayerOffsetsView: View {
             Text("In traveling mode, Dhuhr offset also affects the combined Dhuhr/Asr prayer, and Maghrib offset also affects the combined Maghrib/Isha prayer.")
                 .font(.caption)
                 .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.vertical, 2)
 
             Text("Use these offsets to shift the calculated prayer times earlier or later. Negative values move the time earlier, positive values move it later.")
                 .font(.caption)
                 .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.vertical, 2)
         }
     }
@@ -664,6 +701,7 @@ struct PrayerOffsetsView: View {
 
 struct NotificationView: View {
     @ObservedObject var settings = Settings.shared
+    @Environment(\.appearance) private var appearance
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -711,17 +749,21 @@ struct NotificationView: View {
                                 .font(.subheadline)
                                 .onChange(of: settings.dateNotificationsDayBefore) { _ in settings.hapticFeedback() }
 
-                            Text("Also sends a heads-up the evening before each Islamic date - so Ramadan, Eid, and the days of fasting never arrive unannounced.")
+                            Text("Also sends a heads-up the evening before each Islamic date, so Ramadan, Eid, and the days of fasting never arrive unannounced.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         .settingsDependent()
                     }
                 }
 
                 #if os(iOS)
+                // (Al-Islam offers its Sunnah Reminders here - al-Kahf on Friday, al-Mulk before
+                // sleep - which schedule recitations in the Quran reader this app does not ship.)
+
                 Section(header: Text("ADHAN SOUND")) {
-                    Picker("Adhan Sound", selection: $settings.adhanNotificationSound.animation(.easeInOut)) {
+                    Picker("Adhan Sound", selection: $settings.adhanNotificationSound) {
                         // Two groups, not one run of nineteen names: the tones (with Default, the same
                         // six the ALERT TONE picker offers) and then the calls to prayer.
                         Section {
@@ -750,6 +792,7 @@ struct NotificationView: View {
                         Label("Notification sounds are off in iPhone Settings, so the adhan will be silent.", systemImage: "speaker.slash.fill")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                             .padding(.vertical, 2)
                     }
 
@@ -772,11 +815,12 @@ struct NotificationView: View {
                     Text("The notification plays the adhan's first 30 seconds; iOS won't play a longer notification sound. Previewing, or having the app open when the prayer comes in, plays it in full. Prenotifications, the optional times, and prayers with the adhan switched off use the alert tone below.")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.vertical, 2)
                 }
 
                 Section(header: Text("ALERT TONE")) {
-                    Picker("Alert Tone", selection: $settings.alertToneSound.animation(.easeInOut)) {
+                    Picker("Alert Tone", selection: $settings.alertToneSound) {
                         Section {
                             // Tones only, no adhans: this sound plays exactly where the adhan was
                             // declined (prenotifications, optional times, adhan-off prayers).
@@ -812,6 +856,7 @@ struct NotificationView: View {
                     Text("Used for prenotifications, the optional times (Shurooq, Duhaa, Islamic Midnight, Last Third), and any prayer whose adhan is switched off, so you can tell a prayer notification from every other alert on your phone. None of these is a call to prayer. Echo and Takbir are soft; Chime, Ring, and Alarm are pitched to carry through background noise, Alarm the most of all. Choose Default to go back to the iPhone's own alert sound.")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.vertical, 2)
                 }
 
@@ -823,7 +868,7 @@ struct NotificationView: View {
                 #endif
 
                 Section(header: Text("PRAYER REMINDERS")) {
-                    NavigationLink(destination: MoreNotificationView()) {
+                    NavigationLink(destination: LazyDestination { MoreNotificationView() }) {
                         Label("Prayer Notifications", systemImage: "bell.fill")
                             .font(.subheadline)
                     }
@@ -924,7 +969,8 @@ struct NotificationView: View {
         .padding()
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color(UIColor.secondarySystemBackground))
+                // The reading theme's card color when there is one (the system card was white on Sepia).
+                .fill(appearance.themeRowBackground ?? Color(UIColor.secondarySystemBackground))
                 .overlay(
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .stroke(Color.primary.opacity(0.12), lineWidth: 1)
@@ -1127,6 +1173,7 @@ struct MoreNotificationView: View {
                 Text("Nagging mode helps those who struggle to pray on time. Once enabled, you'll get a notification at the chosen start time before each prayer, then another every 15 minutes, plus final reminders at 10 and 5 minutes remaining.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.vertical, 2)
 
                 Toggle("Turn on Nagging Mode", isOn: Binding(
@@ -1165,7 +1212,7 @@ struct MoreNotificationView: View {
                 .onChange(of: settings.naggingMode) { _ in settings.hapticFeedback() }
 
                 if settings.naggingMode {
-                    Picker("Starting Time", selection: $settings.naggingStartOffset.animation(.easeInOut)) {
+                    Picker("Starting Time", selection: $settings.naggingStartOffset) {
                         Text("45 mins").tag(45)
                         Text("30 mins").tag(30)
                         Text("15 mins").tag(15)
@@ -1449,6 +1496,7 @@ struct NotificationSettingsSection: View {
                         Text("Turn off to get an ordinary notification sound for this prayer, while the others still call the adhan.")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                             .padding(.vertical, 2)
                     }
 
@@ -1462,6 +1510,7 @@ struct NotificationSettingsSection: View {
                             Text("Plays a brief excerpt instead of the adhan's first 30 seconds.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                                 .padding(.vertical, 2)
                         }
                     }
@@ -1472,6 +1521,7 @@ struct NotificationSettingsSection: View {
                 Text(travelNotificationCaption)
                     .font(.caption)
                     .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.vertical, 2)
             }
         }
@@ -1518,6 +1568,8 @@ extension SettingsSearchEntry {
 /// only the dozen methods the Adhan package's enum happened to contain.
 struct PrayerCalculationListView: View {
     @ObservedObject var settings = Settings.shared
+    /// Prayer times and the location publish from `LiveState`, not `Settings` (see its comment).
+    @ObservedObject private var live = LiveState.shared
 
     @State private var searchText = ""
 
@@ -1605,6 +1657,7 @@ struct PrayerCalculationListView: View {
             Text("Picks the method customary in the country you are in. Choosing a method by hand below turns this off.")
                 .font(.caption)
                 .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.vertical, 2)
         }
     }
@@ -1664,6 +1717,7 @@ struct PrayerCalculationListView: View {
                 Text(region)
                     .font(.caption)
                     .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.vertical, 2)
             }
         }
@@ -1710,6 +1764,7 @@ struct PrayerCalculationListView: View {
                 Text("Only set your own angles if you know the values your local mosque uses. A wrong angle means praying at the wrong time.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.vertical, 2)
             }
         }
@@ -1729,11 +1784,12 @@ struct PrayerCalculationListView: View {
                 Text("The Hanafi madhab uses the shadow ratio of 2 to 1 for Asr, while many other schools use 1 to 1. Enable this only if you follow the Hanafi method.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.vertical, 2)
             }
 
             VStack(alignment: .leading) {
-                Picker("High Latitude Rule", selection: $settings.highLatitudeRule.animation(.easeInOut)) {
+                Picker("High Latitude Rule", selection: $settings.highLatitudeRule) {
                     Section {
                         ForEach(Settings.highLatitudeRuleOptions, id: \.self) { option in
                             Text(option).tag(option)
@@ -1750,6 +1806,7 @@ struct PrayerCalculationListView: View {
                 Text(highLatitudeRuleCaption)
                     .font(.caption)
                     .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.vertical, 2)
             }
         }
@@ -1761,7 +1818,7 @@ struct PrayerCalculationListView: View {
         var caption = "When the night is short, the sun never sinks low enough for the twilight that defines "
             + "Fajr and Isha, so they are estimated. This matters most far from the equator, but can shift "
             + "summer times at any latitude."
-        if let location = settings.currentLocation, location.latitude != 1000, location.longitude != 1000 {
+        if let location = live.currentLocation, location.latitude != 1000, location.longitude != 1000 {
             let coordinates = Coordinates(latitude: location.latitude, longitude: location.longitude)
             caption += " Automatic uses \(settings.recommendedHighLatitudeRuleLabel(at: coordinates)) in \(location.city)."
         }
@@ -1773,16 +1830,19 @@ struct PrayerCalculationListView: View {
             Text("Fajr begins at true dawn and Isha at nightfall. Neither is a clock time: both are defined by how far the sun has sunk below the horizon, and the bodies below differ on where exactly to draw that line. A larger angle means an earlier Fajr and a later Isha.")
                 .font(.caption)
                 .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.vertical, 2)
 
             Text("Umm Al-Qura and Qatar use a fixed interval after Maghrib for Isha instead of an angle, because at their latitude the twilight is consistent enough for a clock to be reliable.")
                 .font(.caption)
                 .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.vertical, 2)
 
             Text("Use the method your local mosque uses. If you do not know it, leave this on automatic.")
                 .font(.caption)
                 .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.vertical, 2)
         }
     }
@@ -1797,5 +1857,44 @@ extension SettingsSearchEntry {
         .init(title: "High Latitude Rule", path: "Prayer Settings → Prayer Calculation", keywords: "midnight seventh night twilight northern latitude", destination: .prayerCalculation),
         .init(title: "Hanafi Madhab (Asr Time)", path: "Prayer Settings → Prayer Calculation", keywords: "asr later shadow madhhab school shafi", destination: .prayerCalculation),
     ]
+}
+#endif
+
+#if os(iOS)
+/// The iOS 16+ half of the Adhan settings' programmatic entrances: `navigationDestination(isPresented:)`,
+/// which a `NavigationStack` honours. On iOS 15 this is a no-op and `LegacyProgrammaticLink` pushes.
+private struct ProgrammaticDestinations: ViewModifier {
+    @Binding var openTravelingMode: Bool
+    @Binding var openPrayerCalculation: Bool
+    let travelingMode: () -> AnyView
+    let prayerCalculation: () -> AnyView
+
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) {
+            content
+                .navigationDestination(isPresented: $openTravelingMode) { travelingMode() }
+                .navigationDestination(isPresented: $openPrayerCalculation) { prayerCalculation() }
+        } else {
+            content
+        }
+    }
+}
+
+/// The iOS 15 half: a hidden `NavigationLink(isActive:)` behind the row. Applied on iOS 15 ONLY, so
+/// a `NavigationStack` never sees two links for one flag.
+private struct LegacyProgrammaticLink<Destination: View>: ViewModifier {
+    @Binding var isActive: Bool
+    @ViewBuilder let destination: () -> Destination
+
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) {
+            content
+        } else {
+            content.background(
+                NavigationLink(isActive: $isActive) { destination() } label: { EmptyView() }
+                    .hidden()
+            )
+        }
+    }
 }
 #endif

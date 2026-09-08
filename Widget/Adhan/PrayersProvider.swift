@@ -16,39 +16,203 @@ enum AdhanWidgetDateFormatting {
         return formatter
     }()
 
-    static let fullHijriFormatter: DateFormatter = {
+    /// "Rabiʻ I 24, 1448 AH": the full style minus its weekday, which `hijriDate(for:style:)` adds itself.
+    static let longHijriFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.calendar = hijriCalendar
-        formatter.dateStyle = .full
+        formatter.dateStyle = .long
         formatter.locale = Locale(identifier: "en")
         return formatter
     }()
 
-    static func hijriDate(for entry: PrayersEntry, style: DateFormatter.Style) -> String {
-        let formatter = style == .full ? fullHijriFormatter : mediumHijriFormatter
+    /// The moment the Hijri WEEKDAY is read for: `entry.date`, pushed a day forward once Maghrib has
+    /// passed when the switch-at-Maghrib setting is on (the Islamic day begins at sunset, and so does
+    /// its weekday name: after Maghrib on Saturday it is the night of Sunday).
+    static func hijriWeekdayDate(for entry: PrayersEntry) -> Date {
         // entry.date, never Date(): WidgetKit archives entry views when the timeline is built, so Date()
         // here is the build time - wrong for every pre-built future entry. entry.date is the moment the
         // entry is actually on screen.
         let now = entry.date
-        var referenceDate = now
-
-        if entry.switchHijriDateAtMaghrib,
-           let maghrib = entry.fullPrayers.first(where: { $0.nameTransliteration == "Maghrib" })?.time,
-           now >= maghrib {
-            referenceDate = Calendar.current.date(byAdding: .day, value: 1, to: now) ?? now
-        }
-
-        guard let offsetDate = hijriCalendar.date(byAdding: .day, value: entry.hijriOffset, to: referenceDate) else {
-            return formatter.string(from: referenceDate)
-        }
-
-        return formatter.string(from: offsetDate)
+        guard entry.switchHijriDateAtMaghrib,
+              let maghrib = entry.fullPrayers.first(where: { $0.nameTransliteration == "Maghrib" })?.time,
+              now >= maghrib else { return now }
+        return Calendar.current.date(byAdding: .day, value: 1, to: now) ?? now
     }
+
+    /// The Hijri day the entry is showing, as a date: the weekday date plus the user's day adjustment.
+    /// The adjustment moves the day of the MONTH (the sighting was a day off from Umm al-Qura), never
+    /// the day of the week, which is why the weekday is read from the date above and everything else
+    /// from this one. Every Hijri string the widgets show comes from these two, so a caption on a
+    /// home-screen widget and the lock-screen date widgets can never disagree on the day.
+    static func hijriReferenceDate(for entry: PrayersEntry) -> Date {
+        let date = hijriWeekdayDate(for: entry)
+        return hijriCalendar.date(byAdding: .day, value: entry.hijriOffset, to: date) ?? date
+    }
+
+    /// `.medium`: "Rab. I 24, 1448 AH". `.full`: "Sunday, Rabiʻ I 24, 1448 AH", composed rather than
+    /// formatted in one go, so the weekday is the weekday date's and the rest the adjusted date's (a
+    /// single formatter printed the adjusted date's weekday, a day off under any adjustment).
+    static func hijriDate(for entry: PrayersEntry, style: DateFormatter.Style) -> String {
+        let date = hijriReferenceDate(for: entry)
+        guard style == .full else { return mediumHijriFormatter.string(from: date) }
+        let weekday = englishWeekdayFormatter.string(from: hijriWeekdayDate(for: entry))
+        return "\(weekday), \(longHijriFormatter.string(from: date))"
+    }
+
+    // MARK: The lock-screen date widgets' pieces
+
+    /// The language a date widget writes in. Arabic is a widget of its own per layout rather than a
+    /// setting: a lock-screen widget can't be configured without an App Intent, and separate kinds put
+    /// both in the gallery at once.
+    enum Language {
+        case english
+        case arabic
+    }
+
+    /// One Hijri date broken into the pieces the lock-screen date widgets set separately: a circular
+    /// shows the day number under the month, a rectangular stacks weekday, day-and-month and year.
+    ///
+    /// The English month names are the app's own (`hijriMonths`: "Rabi al-Awwal"), the spelling the Hijri
+    /// Calendar page uses, not CLDR's "Rabiʻ I". The Arabic ones are the formatter's plain unvowelled
+    /// names ("ربيع الأول"), as the Adhan tab's Hijri row shows them: the shared table's vowelled forms
+    /// blur at lock-screen sizes. Digits are Arabic-Indic in Arabic, and the year carries its era mark
+    /// ("1448 AH" / "١٤٤٨ هـ").
+    struct HijriDateParts {
+        let language: Language
+        let weekday: String
+        let day: String
+        let month: String
+        let year: String
+
+        /// "23 Rabi al-Awwal" / "٢٣ ربيع الأول"
+        var dayMonth: String { "\(day) \(month)" }
+        /// "23 Rabi al-Awwal 1448 AH" / "٢٣ ربيع الأول ١٤٤٨ هـ"
+        var dayMonthYear: String { "\(dayMonth) \(year)" }
+        /// "Saturday, 23 Rabi al-Awwal" / "السبت، ٢٣ ربيع الأول": the inline family's text, which
+        /// replaces the lock screen's own date line and so mirrors its shape (weekday, day, month).
+        var weekdayDayMonth: String {
+            language == .arabic ? "\(weekday)، \(dayMonth)" : "\(weekday), \(dayMonth)"
+        }
+    }
+
+    private static func hijriFormatter(locale: String, format: String) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.calendar = hijriCalendar
+        formatter.locale = Locale(identifier: locale)
+        formatter.dateFormat = format
+        return formatter
+    }
+
+    private static let englishWeekdayFormatter = hijriFormatter(locale: "en", format: "EEEE")
+    private static let arabicWeekdayFormatter = hijriFormatter(locale: "ar", format: "EEEE")
+    private static let arabicMonthFormatter = hijriFormatter(locale: "ar", format: "MMMM")
+
+    static func hijriParts(for entry: PrayersEntry, language: Language) -> HijriDateParts {
+        let date = hijriReferenceDate(for: entry)
+        let weekdayDate = hijriWeekdayDate(for: entry)
+        let components = hijriCalendar.dateComponents([.day, .month, .year], from: date)
+        let day = components.day ?? 1
+        let month = components.month ?? 1
+        let year = components.year ?? 1
+
+        switch language {
+        case .english:
+            return HijriDateParts(
+                language: .english,
+                weekday: englishWeekdayFormatter.string(from: weekdayDate),
+                day: String(day),
+                month: hijriMonths.first { $0.number == month }?.english ?? "",
+                year: "\(year) AH"
+            )
+        case .arabic:
+            return HijriDateParts(
+                language: .arabic,
+                weekday: arabicWeekdayFormatter.string(from: weekdayDate),
+                day: arabicNumberString(from: day),
+                month: arabicMonthFormatter.string(from: date),
+                year: "\(arabicNumberString(from: year)) هـ"
+            )
+        }
+    }
+
+    // MARK: Gregorian dates and clock times, in the device's own locale (as the app shows them)
+
+    /// "Saturday": the weekday the clock is on. Always from `entry.date`, the civil date - the Hijri day
+    /// may already have turned at Maghrib, the clock's has not.
+    static let gregorianWeekdayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("EEEE")
+        return formatter
+    }()
+
+    /// "September 5, 2026" (the weekday sits on the line above it).
+    static let gregorianLongFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .long
+        return formatter
+    }()
+
+    /// "Sep 5", for the inline family.
+    static let gregorianShortDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("dMMM")
+        return formatter
+    }()
+
+    /// "3:45 PM" (or 15:45 under a 24-hour clock).
+    static let shortTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter
+    }()
 }
 
 struct PrayersProvider: TimelineProvider {
-    private let store   = UserDefaults(suiteName: AppIdentifiers.appGroupSuiteName)
+    private static let store = UserDefaults(suiteName: AppIdentifiers.appGroupSuiteName)
+    private var store: UserDefaults? { Self.store }
     private let settings = Settings.shared
+
+    // MARK: Per-process memo
+    //
+    // Every Adhan kind (37 on iOS, 2 on the watch) has its own provider, and after a reload WidgetKit
+    // asks each placed one for a timeline in one burst - each of which re-seeded Settings from the App
+    // Group, re-ran the prayer computation and rebuilt the boundary timeline. The inputs are the same
+    // for all of them, so the first build is cached and the rest return it. Keyed on every App Group
+    // value the build reads, plus a short validity window so an extension process that outlives one
+    // burst rebuilds against the current time.
+    private struct Inputs: Hashable {
+        var prayersData: Data?
+        var location: Data?
+        var accent: String?
+        var customHex: String?
+        var travelingMode: Bool
+        var hanafiMadhab: Bool
+        var prayerCalculation: String?
+        var hijriOffset: Int
+        var switchHijriDateAtMaghrib: Bool
+        var offsets: [Int]
+        var customAngles: [Double?]
+        var skyGradients: String?
+    }
+    private static var memo: (inputs: Inputs, builtAt: Date, entries: [PrayersEntry])?
+    private static let memoMaxAge: TimeInterval = 5 * 60
+
+    private func currentInputs() -> Inputs {
+        Inputs(
+            prayersData: store?.data(forKey: "prayersData"),
+            location: store?.data(forKey: "currentLocation"),
+            accent: store?.string(forKey: "accentColor"),
+            customHex: store?.string(forKey: "customAccentColorHex"),
+            travelingMode: store?.bool(forKey: "travelingMode") ?? false,
+            hanafiMadhab: store?.bool(forKey: "hanafiMadhab") ?? false,
+            prayerCalculation: store?.string(forKey: "prayerCalculation"),
+            hijriOffset: store?.integer(forKey: "hijriOffset") ?? 0,
+            switchHijriDateAtMaghrib: store?.bool(forKey: "switchHijriDateAtMaghrib") ?? false,
+            offsets: Settings.prayerOffsetKeys.map { store?.integer(forKey: $0) ?? 0 },
+            customAngles: ["customFajrAngle", "customIshaAngle"].map { store?.object(forKey: $0) as? Double },
+            skyGradients: store?.string(forKey: "skyGradients")
+        )
+    }
 
     /// How long before the next prayer the countdown complication's bar goes red ("not much time
     /// left to pray"): 30 minutes, or half the window when the window itself is short, so a short
@@ -65,7 +229,15 @@ struct PrayersProvider: TimelineProvider {
     func placeholder(in context: Context) -> PrayersEntry { sampleEntry() }
 
     func getSnapshot(in ctx: Context, completion: @escaping (PrayersEntry)->Void) {
-        completion(ctx.isPreview ? sampleEntry() : makeEntry())
+        if ctx.isPreview {
+            completion(sampleEntry())
+            return
+        }
+        // The entry that is current NOW out of the shared timeline, so a snapshot costs nothing after
+        // the first kind has built it.
+        let entries = makeTimelineEntries()
+        let now = Date()
+        completion(entries.last { $0.date <= now } ?? entries[0])
     }
 
     func getTimeline(in ctx: Context, completion: @escaping (Timeline<PrayersEntry>)->Void) {
@@ -76,23 +248,26 @@ struct PrayersProvider: TimelineProvider {
         completion(Timeline(entries: entries, policy: entries.count > 1 ? .atEnd : .after(Date().addingTimeInterval(30 * 60))))
     }
 
-    private func makeEntry() -> PrayersEntry {
-        // The whole entry build runs on the main queue. WidgetKit calls `getTimeline` for each widget KIND on
-        // its own background thread, and every provider mutates the one `Settings.shared` singleton below -
-        // concurrent unsynchronized writes to shared state. Hopping the entire build to main both serializes
-        // the providers and puts the mutations on the same thread the rest of Settings lives on. (The
-        // extension's main thread is otherwise idle; `fetchPrayerTimes` was already hopping there anyway.)
-        if Thread.isMainThread {
-            return makeEntryOnMain()
-        }
-        return DispatchQueue.main.sync { makeEntryOnMain() }
-    }
-
+    /// The memoized timeline (see `Inputs`). The whole build runs on the main queue: WidgetKit calls
+    /// `getTimeline` for each widget KIND on its own background thread, and the build mutates the one
+    /// `Settings.shared` singleton - concurrent unsynchronized writes to shared state. Hopping to main
+    /// both serializes the providers and puts the mutations on the same thread the rest of Settings lives
+    /// on, and it is what makes the memo safe without a lock.
     private func makeTimelineEntries() -> [PrayersEntry] {
         if Thread.isMainThread {
-            return makeTimelineEntriesOnMain()
+            return memoizedTimelineEntriesOnMain()
         }
-        return DispatchQueue.main.sync { makeTimelineEntriesOnMain() }
+        return DispatchQueue.main.sync { memoizedTimelineEntriesOnMain() }
+    }
+
+    private func memoizedTimelineEntriesOnMain() -> [PrayersEntry] {
+        let inputs = currentInputs()
+        if let memo = Self.memo, memo.inputs == inputs, Date().timeIntervalSince(memo.builtAt) < Self.memoMaxAge {
+            return memo.entries
+        }
+        let entries = makeTimelineEntriesOnMain()
+        Self.memo = (inputs, Date(), entries)
+        return entries
     }
 
     /// One entry now, plus one at every upcoming prayer boundary in the next ~30 hours with current/next
@@ -120,14 +295,30 @@ struct PrayersProvider: TimelineProvider {
             guard let next = Calendar.current.date(byAdding: .day, value: 1, to: midnight) else { break }
             midnight = next
         }
+        #if os(watchOS)
         // ...plus one entry shortly BEFORE each boundary, where the countdown complication's bar
-        // turns red (`lowTimeWarningWindow`). Same content otherwise, so the other widgets just
-        // re-render unchanged.
+        // turns red (`lowTimeWarningWindow`). Watch only: nothing on iOS reads it (every iOS
+        // countdown is a self-updating `Text(style: .timer)`), and each of these doubled the number
+        // of views WidgetKit archived per iOS widget for an identical render.
         let boundaryTimes = boundaries.map(\.time).sorted()
         for (start, end) in zip(boundaryTimes, boundaryTimes.dropFirst()) {
             let warning = end.addingTimeInterval(-Self.lowTimeWarningWindow(end.timeIntervalSince(start)))
             if warning > now, warning <= horizon { flipTimes.append(warning) }
         }
+        #endif
+
+        // The sky gradient per current prayer, resolved once here rather than by every archived entry
+        // view (`Settings.skyGradientColors` decodes the palette overrides behind a memo, but the
+        // gradient widget and the complication each called it once per entry per kind).
+        var skyColorsByKey: [String: [Color]] = [:]
+        func skyColors(for prayer: Prayer?) -> [Color] {
+            let key = SkyPalette.editableKey(for: prayer?.nameTransliteration)
+            if let cached = skyColorsByKey[key] { return cached }
+            let colors = settings.skyGradientColors(forPrayer: prayer?.nameTransliteration)
+            skyColorsByKey[key] = colors
+            return colors
+        }
+        skyColorsByKey[SkyPalette.editableKey(for: first.currentPrayer?.nameTransliteration)] = first.skyColors
 
         // Per-day prayer tables, so an entry that is on screen TOMORROW morning lists tomorrow's clock
         // times in the grid/split layouts - copying today's table drifted them by a minute or two.
@@ -159,16 +350,18 @@ struct PrayersProvider: TimelineProvider {
                 currentPrayer:              current,
                 nextPrayer:                 next,
                 hijriOffset:                first.hijriOffset,
-                switchHijriDateAtMaghrib:   first.switchHijriDateAtMaghrib
+                switchHijriDateAtMaghrib:   first.switchHijriDateAtMaghrib,
+                skyColors:                  skyColors(for: current)
             ))
         }
         return entries
     }
 
     private func makeEntryOnMain() -> PrayersEntry {
-        if let data = store?.data(forKey: "prayersData"),
-           let prayers = try? Settings.decoder.decode(Prayers.self, from: data) {
-            settings.prayers = prayers
+        // The raw bytes, not a decoded `Prayers`: assigning `settings.prayers` re-encoded what was just
+        // decoded (its setter persists through `prayersData`). `prayers` decodes lazily on first read.
+        if let data = store?.data(forKey: "prayersData"), !data.isEmpty, settings.prayersData != data {
+            settings.prayersData = data
         }
 
         if let locData = store?.data(forKey: "currentLocation"),
@@ -219,7 +412,8 @@ struct PrayersProvider: TimelineProvider {
             currentPrayer:              settings.currentPrayer,
             nextPrayer:                 settings.nextPrayer,
             hijriOffset:                settings.hijriOffset,
-            switchHijriDateAtMaghrib:   settings.switchHijriDateAtMaghrib
+            switchHijriDateAtMaghrib:   settings.switchHijriDateAtMaghrib,
+            skyColors:                  settings.skyGradientColors(forPrayer: settings.currentPrayer?.nameTransliteration)
         )
     }
 
@@ -242,16 +436,18 @@ struct PrayersProvider: TimelineProvider {
             prayer("المَغرِب", "Maghrib", "Sunset", "sunset", 18, 30),
             prayer("العِشَاء", "Isha", "Night", "moon", 20, 0),
         ]
+        let current = prayers.last { $0.time <= now } ?? prayers.first
         return PrayersEntry(
             date: now,
             accentColor: accent,
             currentCity: "Mecca",
             prayers: prayers,
             fullPrayers: prayers,
-            currentPrayer: prayers.last { $0.time <= now } ?? prayers.first,
+            currentPrayer: current,
             nextPrayer: prayers.first { $0.time > now } ?? prayers.first,
             hijriOffset: 0,
-            switchHijriDateAtMaghrib: false
+            switchHijriDateAtMaghrib: false,
+            skyColors: settings.skyGradientColors(forPrayer: current?.nameTransliteration)
         )
     }
 
@@ -262,7 +458,8 @@ struct PrayersProvider: TimelineProvider {
               prayers: [], fullPrayers: [],
               currentPrayer: nil, nextPrayer: nil,
               hijriOffset: 0,
-              switchHijriDateAtMaghrib: false)
+              switchHijriDateAtMaghrib: false,
+              skyColors: settings.skyGradientColors(forPrayer: nil))
     }
 }
 
@@ -276,4 +473,6 @@ struct PrayersEntry: TimelineEntry {
     let nextPrayer: Prayer?
     let hijriOffset: Int
     let switchHijriDateAtMaghrib: Bool
+    /// The sky gradient for `currentPrayer`, resolved by the provider (see `makeTimelineEntriesOnMain`).
+    let skyColors: [Color]
 }

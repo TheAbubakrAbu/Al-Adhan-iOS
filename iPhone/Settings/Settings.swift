@@ -29,6 +29,47 @@ let logger = Logger(subsystem: AppIdentifiers.bundleIdentifier, category: "Setti
 ///   3. **App Storage - Quran** - `@AppStorage` reciter, favorites, sajdah/muqatta'at, bookmarks, khatm.
 ///   4. **App Storage - Arabic/Names + appearance/misc** - fonts, themes, haptics, color scheme.
 /// Keep new settings in the matching section (and storage mechanism) so the split stays clean.
+/// The high-churn half of `Settings` (performance plan, Phase 1 step 6). These fields change on their
+/// own while the user is somewhere else in the app: a prayer boundary, a location fix, a recomputed day
+/// of prayer times. While they lived on `Settings`, every `@ObservedObject settings` in the app (the
+/// Hadith, Islam and Settings tab roots, the reader, the Now Playing bar) re-evaluated for each of them,
+/// and one prayer change was nine publishes. Only the views that show prayer times or the location
+/// observe this object; `Settings` keeps forwarding properties under the same names, so non-view code
+/// (the scheduler, widgets, shortcuts, the watch) is unchanged.
+///
+/// Rule: a view whose BODY reads `currentPrayer`, `nextPrayer`, `prayers` or `currentLocation` must hold
+/// `@ObservedObject private var live = LiveState.shared` and read them from `live`, otherwise it renders
+/// stale (Settings no longer publishes for these). The forwarding properties are for non-view code.
+final class LiveState: ObservableObject {
+    static let shared = LiveState()
+
+    @Published var currentPrayer: Prayer?
+    @Published var nextPrayer: Prayer?
+    /// The encoded `Prayers`; `Settings.prayers` decodes it through its main-thread cache.
+    @Published var prayersData = Data()
+    @Published var currentLocation: Location?
+
+    /// The decoded prayers, for view bodies that already read the other fields from here.
+    var prayers: Prayers? { Settings.shared.prayers }
+
+    private init() { ObjectPublishCounter.attach(self, label: "LiveState") }
+}
+
+/// The last-read position, split out for the same reason: a reading pause writes it every 0.8 s, and
+/// the whole Adhan tab used to re-render for each write. Observed by the Quran tab root and the readers;
+/// everything else goes through the forwarding properties on `Settings`.
+final class ReadingState: ObservableObject {
+    static let shared = ReadingState()
+
+    @AppStorage("lastReadSurah") var lastReadSurah: Int = 0
+    @AppStorage("lastReadAyah") var lastReadAyah: Int = 0
+    /// When the last-read position was recorded (`Settings.stampLastRead`). 0 = saved by a build
+    /// without stamps.
+    @AppStorage("lastReadTimestamp") var lastReadTimestampRaw: Double = 0
+
+    private init() { ObjectPublishCounter.attach(self, label: "ReadingState") }
+}
+
 final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
     static let shared = Settings()
     // Internal (not private): the per-domain extension files (SettingsQuran and friends) mirror their
@@ -49,7 +90,43 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
     /// `scheduleNotifications(deferred:)`); the background-refresh task path stays synchronous.
     /// (Not `private` because the coalescing helpers live in the `SettingsAdhan` extension, another file.)
     var pendingNotificationScheduleWorkItem: DispatchWorkItem?
+    /// Completions handed to `scheduleNotifications(deferred:completion:)` while a pass is pending;
+    /// all run after the one coalesced pass.
+    var pendingNotificationScheduleCompletions: [() -> Void] = []
     var pendingWidgetReloadWorkItem: DispatchWorkItem?
+
+    /// Trailing-debounced `fetchPrayerTimes` for the ~60 property `didSet`s (see `fetchPrayerTimesDebounced`
+    /// in SettingsAdhan.swift): a held offset Stepper used to run the whole recompute once per tick.
+    var pendingFetchWorkItem: DispatchWorkItem?
+    var pendingFetchFlags: (force: Bool, notification: Bool, runAutoChecks: Bool) = (false, false, true)
+
+    /// Write counters for the memoized derivations (`profileStatsStamp`, `trackerStats`). They used to
+    /// hash every content blob - up to five years of tracker marks and ~6,000 khatm keys - on EVERY
+    /// render of the Settings tab's profile row and on every Settings publish (`AchievementWatcher`).
+    /// A counter bumped by the setters costs nothing and answers the same question: did anything change.
+    /// In-process only; the stamps are only ever compared within one run.
+    private(set) var contentGeneration = 0
+    private(set) var trackerGeneration = 0
+    func bumpContentGeneration() { contentGeneration &+= 1 }
+    private func bumpTrackerGeneration() { trackerGeneration &+= 1; contentGeneration &+= 1 }
+
+    /// `ayahRenderSettingsSignature` memo: ~47 `@AppStorage` reads per call, read once per reader body
+    /// pass. Cleared on every publish (see `init`), since any Settings write may have changed an input.
+    /// Main-thread only; off-main readers compute directly.
+    var renderSignatureCache: String?
+    /// The mushaf page cache's settings signature, memoized the same way (Phase 5 step 5).
+    var mushafSignatureCache: String?
+
+    private var selfObservation: AnyCancellable?
+
+    #if DEBUG
+    /// `-publishCounter`: log how many times this object published per second (only seconds with any).
+    /// One publish per user action and zero while idle is the target; a page turn printing 3, a
+    /// toggle printing 2 or a GPS fix printing 1 per sample is the fan-out the performance plan removes.
+    private var debugPublishCount = 0
+    /// Internal, not private: the widget snapshot stores log their byte counts under the same flag.
+    static let debugPublishCounterEnabled = ProcessInfo.processInfo.arguments.contains("-publishCounter")
+    #endif
 
     static let encoder: JSONEncoder = {
         let enc = JSONEncoder()
@@ -78,7 +155,7 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
             UserDefaults.standard.set(false, forKey: "alIslamGlow")
         }
 
-        self.prayersData = appGroupUserDefaults?.data(forKey: "prayersData") ?? Data()
+        LiveState.shared.prayersData = appGroupUserDefaults?.data(forKey: "prayersData") ?? Data()
         self.travelingMode = appGroupUserDefaults?.bool(forKey: "travelingMode") ?? false
         self.hanafiMadhab = appGroupUserDefaults?.bool(forKey: "hanafiMadhab") ?? false
         self.prayerCalculation = appGroupUserDefaults?.string(forKey: "prayerCalculation") ?? "Muslim World League"
@@ -89,7 +166,7 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
         if let locationData = appGroupUserDefaults?.data(forKey: "currentLocation") {
             do {
                 let location = try Self.decoder.decode(Location.self, from: locationData)
-                currentLocation = location
+                LiveState.shared.currentLocation = location
             } catch {
                 logger.debug("Failed to decode location: \(error)")
             }
@@ -114,7 +191,31 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
         }
 
         super.init()
-        Self.locationManager.delegate = self
+
+        // Every publish (a `@Published` write or an `@AppStorage` write - both route through
+        // `objectWillChange`) invalidates the render-signature memo. Off-main publishes are a bug
+        // elsewhere, but must not race the main-only cache, so they hop.
+        selfObservation = objectWillChange.sink { [weak self] _ in
+            guard let self else { return }
+            if Thread.isMainThread {
+                self.renderSignatureCache = nil
+                self.mushafSignatureCache = nil
+            } else {
+                DispatchQueue.main.async {
+                    self.renderSignatureCache = nil
+                    self.mushafSignatureCache = nil
+                }
+            }
+            #if DEBUG
+            if Self.debugPublishCounterEnabled { self.debugNotePublish() }
+            #endif
+        }
+
+        // Widget and complication processes read the App Group mirrors and never touch CoreLocation
+        // authorization or the migrations: all of it is app-only work.
+        if Self.isAppProcess {
+            Self.locationManager.delegate = self
+        }
 
         runAdhanSoundStartupMigrations()
         runWatchSyncKeyMigration()
@@ -249,6 +350,13 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
                     case "fontArabic": shared.fontArabic = kv[1]
                     case "useFontArabic": shared.useFontArabic = kv[1] == "1"
                     case "islamArabicFace": shared.islamArabicFace = IslamArabicFace(rawValue: kv[1]) ?? shared.islamArabicFace
+                    case "showDuha": shared.showDuha = kv[1] == "1"
+                    case "offsetFajr": shared.offsetFajr = Int(kv[1]) ?? shared.offsetFajr
+                    case "notificationFajr": shared.notificationFajr = kv[1] == "1"
+                    // The Classic Look flip, headlessly: paired with "-scrollToClassicLook" it shows
+                    // whether a look change keeps the Settings list where it was (2026-09-04: it
+                    // used to jump to the top, because the bottom bar's modifier changed shape).
+                    case "classicLook": shared.classicLook = kv[1] == "1"
                     case "tab":
                         NotificationCenter.default.post(name: Notification.Name("AlIslamDebugSwitchTab"), object: kv[1])
                     default: break
@@ -258,8 +366,12 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
         }
         #endif
 
-        runAdhanSoundStartupMigrations()
-        runWatchSyncKeyMigration()
+        if Self.isAppProcess {
+            LaunchClock.mark("settings init: before migrations")
+            runAdhanSoundStartupMigrations()
+            runWatchSyncKeyMigration()
+            LaunchClock.mark("settings init: migrations done")
+        }
 
         #if os(watchOS)
         // Reading themes (Sepia/Gray/Custom) are phone-only looks: earlier builds synced the phone's
@@ -296,16 +408,23 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
         // on first launch, throws the permission dialog up before the UI is even visible). The stored
         // currentLocation (decoded above) is enough for the launch fetch; this refreshes it a tick later.
         if Self.isAppProcess {
-            // One-time seed of the switchHijriDateAtMaghrib mirror (see its didSet): users who enabled the
-            // toggle before the mirror existed would otherwise stay wrong in widgets until they re-toggled.
-            appGroupUserDefaults?.setValue(switchHijriDateAtMaghrib, forKey: "switchHijriDateAtMaghrib")
-            // Same seed for the sky palette (see skyGradientsJSON's didSet): palettes customized before
-            // the mirror existed would otherwise never reach the gradient widget until re-edited.
-            appGroupUserDefaults?.setValue(skyGradientsJSON, forKey: "skyGradients")
-            // Same seed for the manual prayer offsets (see mirrorOffsetToAppGroup): offsets set before
-            // the mirror existed would otherwise stay wrong in widgets until the user re-adjusted them.
-            for key in Self.prayerOffsetKeys {
-                mirrorOffsetToAppGroup(UserDefaults.standard.integer(forKey: key), key: key)
+            // One-time seeds of the App Group mirrors, for values stored before each mirror existed
+            // (the didSets keep them current from then on). Guarded by a flag so the eight cfprefsd
+            // round-trips run once per install, not on every launch.
+            let seedKey = "appGroupMirrorsSeeded.v1"
+            if appGroupUserDefaults?.bool(forKey: seedKey) != true {
+                // switchHijriDateAtMaghrib: users who enabled the toggle before the mirror existed would
+                // otherwise stay wrong in widgets until they re-toggled.
+                appGroupUserDefaults?.setValue(switchHijriDateAtMaghrib, forKey: "switchHijriDateAtMaghrib")
+                // The sky palette (see skyGradientsJSON's didSet): palettes customized before the mirror
+                // existed would otherwise never reach the gradient widget until re-edited.
+                appGroupUserDefaults?.setValue(skyGradientsJSON, forKey: "skyGradients")
+                // The manual prayer offsets (see mirrorOffsetToAppGroup): offsets set before the mirror
+                // existed would otherwise stay wrong in widgets until the user re-adjusted them.
+                for key in Self.prayerOffsetKeys {
+                    mirrorOffsetToAppGroup(UserDefaults.standard.integer(forKey: key), key: key)
+                }
+                appGroupUserDefaults?.set(true, forKey: seedKey)
             }
 
             // Widgets read the app-group location; they must not touch CoreLocation authorization.
@@ -315,30 +434,128 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
         }
     }
 
-    func waitUntilReady() async {
-        while true {
-            let isReady = await MainActor.run { self.isReadyForUI }
-            if isReady { return }
-            try? await Task.sleep(nanoseconds: 10_000_000)
+    #if DEBUG
+    /// `-publishTrace`: log the caller of every publish (four frames), to find out WHICH write it was.
+    private static let debugPublishTraceEnabled = ProcessInfo.processInfo.arguments.contains("-publishTrace")
+
+    private func debugNotePublish() {
+        if Self.debugPublishTraceEnabled {
+            let frames = Thread.callStackSymbols.dropFirst(6).prefix(6)
+                .map { $0.split(separator: " ", omittingEmptySubsequences: true).dropFirst(3).joined(separator: " ") }
+            NSLog("PUBLISH TRACE %@", frames.joined(separator: " <- "))
+        }
+        let wasIdle = debugPublishCount == 0
+        debugPublishCount += 1
+        guard wasIdle else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self else { return }
+            NSLog("PUBLISH COUNT %d /s", self.debugPublishCount)
+            self.debugPublishCount = 0
         }
     }
+    #endif
+
+    func waitUntilReady() async {
+        // `init` sets the flag synchronously, so this returns on the replayed current value; the
+        // subscription (not a 10 ms poll) is for the day that stops being true.
+        for await ready in $isReadyForUI.values where ready { return }
+    }
     
+    /// Which widget kinds a reload is for. WidgetKit budgets reloads PER PLACED WIDGET (roughly 40-70 a
+    /// day each), and `reloadAllTimelines()` spends one from every widget on the home screen - so a
+    /// prayer-offset change used to charge the four Quran widgets too, and a long reading session
+    /// charged the 33 Adhan kinds. Scoping keeps each family's budget for its own changes.
+    enum WidgetReloadScope {
+        /// Prayer times, location, hijri date, sky palette: the Adhan widgets and watch complications.
+        case adhan
+        /// Something every widget paints (the accent), or a reset.
+        case all
+    }
+
+    /// The Adhan-family widget kinds, in `Widgets.swift` order (iOS) and the two watch complications.
+    /// Kept as one list so `reloadWidgets(.adhan)` and the extension's provider memo agree on the family.
+    static let adhanWidgetKinds: [String] = {
+        #if os(watchOS)
+        return ["Complication", "CountdownComplication"]
+        #else
+        return [
+            "PrayerGradientWidget", "SolarArcSkyWidget", "MoonSkyWidget", "SolarMoonSkyWidget",
+            "NextPrayerBoardSkyWidget", "PrayerDaySkyWidget", "CountdownSkyWidget", "SimpleSkyWidget",
+            "PrayerListSmallSkyWidget", "PrayersSkyWidget", "Prayers2SkyWidget", "FastingCountdownSkyWidget",
+            "PrayerGlanceWidget", "SolarArcWidget", "MoonWidget", "SolarMoonWidget",
+            "NextPrayerBoardWidget", "PrayerDayWidget", "CountdownWidget", "SimpleWidget",
+            "PrayerListSmallWidget", "PrayersWidget", "Prayers2Widget", "FastingCountdownWidget",
+            "PrayerProgressRingWidget", "PrayerCountdownCircularWidget", "LockScreen1Widget",
+            "PrayerWaveWidget", "LockScreen2Widget", "NextPrayerProgressWidget", "PrayerRowLockWidget",
+            "LockScreen3Widget", "LockScreen4Widget",
+        ]
+        #endif
+    }()
+
+    /// The four Quran widget kinds (`Widgets.swift`). `refreshQuranWidgets` reloads a subset of these.
+    static let quranWidgetKinds = ["LastReadSurahWidget", "LastListenedSurahWidget", "LastListenedAyahWidget", "RandomAyahWidget"]
+
+    /// The kinds the user has actually placed, as last reported by WidgetKit; nil until the first query
+    /// answers. A reload of an unplaced kind is a free no-op for WidgetKit but an XPC round trip for us,
+    /// and a scoped reload of 33 kinds would otherwise be 33 of them. Refreshed on every reload (the
+    /// answer arrives asynchronously, so a widget placed since the last query is picked up next time).
+    private static var placedWidgetKinds: Set<String>?
+    private static var pendingWidgetReloadScope: WidgetReloadScope = .adhan
+
     /// Reload widget timelines, coalescing the launch burst the same way as `scheduleNotifications`.
-    func reloadWidgets(deferred: Bool) {
+    /// Scopes coalesce upward: an `.all` request pending with an `.adhan` one reloads everything once.
+    func reloadWidgets(deferred: Bool, scope: WidgetReloadScope = .adhan) {
         // See `scheduleNotifications`: a widget must not reload widget timelines - that is a self-reload loop.
         guard Settings.isAppProcess else { return }
+        if case .all = scope { Self.pendingWidgetReloadScope = .all }
+        else if pendingWidgetReloadWorkItem == nil { Self.pendingWidgetReloadScope = scope }
         pendingWidgetReloadWorkItem?.cancel()
         pendingWidgetReloadWorkItem = nil
         guard deferred else {
-            WidgetCenter.shared.reloadAllTimelines()
+            Self.performWidgetReload(scope: Self.pendingWidgetReloadScope)
+            Self.pendingWidgetReloadScope = .adhan
             return
         }
         let work = DispatchWorkItem { [weak self] in
             self?.pendingWidgetReloadWorkItem = nil
-            WidgetCenter.shared.reloadAllTimelines()
+            Self.performWidgetReload(scope: Self.pendingWidgetReloadScope)
+            Self.pendingWidgetReloadScope = .adhan
         }
         pendingWidgetReloadWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+    }
+
+    private static func performWidgetReload(scope: WidgetReloadScope) {
+        switch scope {
+        case .all:
+            WidgetCenter.shared.reloadAllTimelines()
+        case .adhan:
+            reloadWidgetKinds(adhanWidgetKinds)
+        }
+        refreshPlacedWidgetKinds()
+    }
+
+    /// Reloads the placed kinds among `kinds`; before the first placement answer, all of them.
+    static func reloadWidgetKinds(_ kinds: [String]) {
+        guard isAppProcess else { return }
+        let placed = placedWidgetKinds
+        for kind in kinds where placed?.contains(kind) ?? true {
+            WidgetCenter.shared.reloadTimelines(ofKind: kind)
+        }
+        #if DEBUG
+        if debugPublishCounterEnabled {
+            let count = kinds.filter { placed?.contains($0) ?? true }.count
+            NSLog("WIDGET RELOAD %d kinds (%@)", count, placed == nil ? "placement unknown" : "placed only")
+        }
+        #endif
+    }
+
+    private static func refreshPlacedWidgetKinds() {
+        WidgetCenter.shared.getCurrentConfigurations { result in
+            guard case .success(let infos) = result else { return }
+            let kinds = Set(infos.map(\.kind))
+            DispatchQueue.main.async { placedWidgetKinds = kinds }
+        }
     }
 
     /// Posted by a full erase (`resetAllSettings(keepingContent: false)`) so in-memory stores that live
@@ -431,10 +648,9 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
 
         objectWillChange.send()
         updateDates()
+        // The forced fetch reloads every widget itself (deferred, coalesced); an immediate reload here
+        // on top of it was a second full reload against WidgetKit's daily budget.
         fetchPrayerTimes(force: true)
-        #if os(iOS) || os(watchOS)
-        WidgetCenter.shared.reloadAllTimelines()
-        #endif
     }
 
     // MARK: - [Shared] App group - shared with widgets / extensions
@@ -509,7 +725,7 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
             // `.onChange` at the app root) so every write path - the pickers, a synced snapshot, a
             // settings reset - repaints without each caller remembering to. Deferred so a burst of
             // writes (reset, sync apply) coalesces into one reload against WidgetKit's daily budget.
-            reloadWidgets(deferred: true)
+            reloadWidgets(deferred: true, scope: .all)
         }
     }
 
@@ -533,12 +749,16 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
     }
 
 
-    @Published var prayersData: Data {
-        didSet {
+    /// Forwarded to `LiveState` (see its comment): same name, but the publish reaches only the views
+    /// that observe `LiveState`.
+    var prayersData: Data {
+        get { LiveState.shared.prayersData }
+        set {
+            LiveState.shared.prayersData = newValue
             cachedPrayersValid = false   // backing bytes changed - drop the decoded cache
             guard Self.isAppProcess else { return }
-            if !prayersData.isEmpty {
-                appGroupUserDefaults?.setValue(prayersData, forKey: "prayersData")
+            if !newValue.isEmpty {
+                appGroupUserDefaults?.setValue(newValue, forKey: "prayersData")
             }
         }
     }
@@ -575,10 +795,13 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
         }
     }
 
-    @Published var currentLocation: Location? {
-        didSet {
+    /// Forwarded to `LiveState`; the App Group mirror for the widgets is written here.
+    var currentLocation: Location? {
+        get { LiveState.shared.currentLocation }
+        set {
+            LiveState.shared.currentLocation = newValue
             guard Self.isAppProcess else { return }
-            guard let location = currentLocation else { return }
+            guard let location = newValue else { return }
             do {
                 let locationData = try Self.encoder.encode(location)
                 appGroupUserDefaults?.setValue(locationData, forKey: "currentLocation")
@@ -626,7 +849,7 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
             // watch-sync APPLY (which assigns through real setters and is engineered to do exactly one
             // recompute with auto-checks off at the end) - letting auto-detection run mid-apply could
             // flip the calculation/traveling settings the snapshot is in the middle of delivering.
-            fetchPrayerTimes(force: true, runAutoChecks: false)
+            fetchPrayerTimesDebounced(force: true, runAutoChecks: false)
             markExplicitlySet("hanafiMadhab")
         }
     }
@@ -650,8 +873,7 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
             // Prayer times and reminders consult the ADJUSTED calendar too (the Umm al-Qura Ramadan
             // Isha extension, and the Islamic-event notifications' Gregorian day), so a forced fetch
             // recomputes and reschedules under the new offset.
-            fetchPrayerTimes(force: true, runAutoChecks: false)
-            reloadWidgets(deferred: true)
+            fetchPrayerTimesDebounced(force: true, runAutoChecks: false)
         }
     }
 
@@ -662,7 +884,7 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
             guard Self.isAppProcess else { return }
             appGroupUserDefaults?.setValue(highLatitudeRule, forKey: "highLatitudeRule")
             Settings.invalidatePrayerComputationCache()
-            fetchPrayerTimes(force: true)
+            fetchPrayerTimesDebounced(force: true)
             markExplicitlySet("highLatitudeRule")
         }
     }
@@ -675,7 +897,7 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
             guard Self.isAppProcess else { return }
             appGroupUserDefaults?.setValue(customPrayerNames, forKey: "customPrayerNames")
             Settings.invalidatePrayerComputationCache()
-            fetchPrayerTimes(force: true)
+            fetchPrayerTimesDebounced(force: true)
             markExplicitlySet("customPrayerNames")
         }
     }
@@ -684,18 +906,26 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
 
     /// Which prayers were marked prayed, per civil day: encoded `[String: [String]]` keyed by
     /// "yyyy-MM-dd", values are prayer transliterations. Helpers live in SettingsAdhan.swift.
-    @AppStorage("prayerTrackerData") var prayerTrackerData: Data = Data()
+    @AppStorage("prayerTrackerData") var prayerTrackerData: Data = Data() {
+        didSet { bumpTrackerGeneration() }
+    }
 
     /// Days the tracker treats as EXEMPT (menstruation/postnatal): encoded `[String]` of "yyyy-MM-dd"
     /// keys. Exempt days don't count against streaks or completion - prayer is not obligatory then and
     /// is not made up later. Helpers live in SettingsAdhan.swift.
-    @AppStorage("prayerTrackerExemptDaysData") var trackerExemptDaysData: Data = Data()
+    @AppStorage("prayerTrackerExemptDaysData") var trackerExemptDaysData: Data = Data() {
+        didSet { bumpTrackerGeneration() }
+    }
 
     /// The menses pause switch. While on, every day (from `mensesPauseStartStamp` forward) is exempt and
     /// nagging reminders stay silent; turning it off writes the finished range into the exempt-days set.
     /// Set through `setMensesPause` so the range bookkeeping and notification rebuild always happen.
-    @AppStorage("mensesPauseActive") var mensesPauseActive: Bool = false
-    @AppStorage("mensesPauseStartStamp") var mensesPauseStartStamp: Double = 0
+    @AppStorage("mensesPauseActive") var mensesPauseActive: Bool = false {
+        didSet { bumpTrackerGeneration() }
+    }
+    @AppStorage("mensesPauseStartStamp") var mensesPauseStartStamp: Double = 0 {
+        didSet { bumpTrackerGeneration() }
+    }
 
     /// Set when a nagging notification is tapped: the prayer tab asks "Did you pray X?" and a yes
     /// marks the tracker and silences the rest of that cascade.
@@ -711,13 +941,19 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
     // MARK: - [Al-Adhan] Prayer - live state & hijri (app-storage persistence)
 
     @AppStorage("hijriDate") private var hijriDateData: String?
+    /// Decoded memo keyed on the stored string: the getter is read per countdown tick and per calendar
+    /// cell, and each read was a JSON decode.
+    private static var hijriDateCache: (raw: String, value: HijriDate?)?
     var hijriDate: HijriDate? {
         get {
-            guard let hijriDateData = hijriDateData,
-                  let data = hijriDateData.data(using: .utf8) else {
-                return nil
+            guard let hijriDateData = hijriDateData else { return nil }
+            if Thread.isMainThread, let cached = Self.hijriDateCache, cached.raw == hijriDateData {
+                return cached.value
             }
-            return try? Self.decoder.decode(HijriDate.self, from: data)
+            guard let data = hijriDateData.data(using: .utf8) else { return nil }
+            let decoded = try? Self.decoder.decode(HijriDate.self, from: data)
+            if Thread.isMainThread { Self.hijriDateCache = (hijriDateData, decoded) }
+            return decoded
         }
         set {
             if let newValue = newValue {
@@ -729,17 +965,22 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
         }
     }
 
-    @AppStorage("currentPrayerData") var currentPrayerData: Data?
-    @Published var currentPrayer: Prayer? {
-        didSet {
-            currentPrayerData = try? Self.encoder.encode(currentPrayer)
+    /// Forwarded to `LiveState`. The `currentPrayerData` / `nextPrayerData` keys used to be `@AppStorage`
+    /// mirrors that nothing reads; each write was a publish plus SwiftUI's defaults-observer echo, so a
+    /// prayer boundary cost four publishes for two values. Plain writes keep the keys populated.
+    var currentPrayer: Prayer? {
+        get { LiveState.shared.currentPrayer }
+        set {
+            LiveState.shared.currentPrayer = newValue
+            UserDefaults.standard.set(try? Self.encoder.encode(newValue), forKey: "currentPrayerData")
         }
     }
 
-    @AppStorage("nextPrayerData") var nextPrayerData: Data?
-    @Published var nextPrayer: Prayer? {
-        didSet {
-            nextPrayerData = try? Self.encoder.encode(nextPrayer)
+    var nextPrayer: Prayer? {
+        get { LiveState.shared.nextPrayer }
+        set {
+            LiveState.shared.nextPrayer = newValue
+            UserDefaults.standard.set(try? Self.encoder.encode(newValue), forKey: "nextPrayerData")
         }
     }
 
@@ -766,7 +1007,7 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
 
             ("First Day of Ramadan", DateComponents(year: currentHijriYear, month: 9, day: 1), "Begin obligatory fast", "The month of fasting begins; all Muslims must fast from Fajr (dawn) to Maghrib (sunset)."),
             ("Last 10 Nights of Ramadan", DateComponents(year: currentHijriYear, month: 9, day: 21), "Seek Laylatul Qadr", "The most virtuous nights of the year; increase worship as these nights are beloved to Allah and contain Laylatul Qadr."),
-            ("27th Night of Ramadan", DateComponents(year: currentHijriYear, month: 9, day: 27), "Likely Laylatul Qadr", "A strong possibility for Laylatul Qadr - the Night of Decree when the Qur’an was sent down - though not confirmed."),
+            ("27th Night of Ramadan", DateComponents(year: currentHijriYear, month: 9, day: 27), "Likely Laylatul Qadr", "A strong possibility for Laylatul Qadr, the Night of Decree when the Qur’an was sent down, though not confirmed."),
             ("Eid Al-Fitr", DateComponents(year: currentHijriYear, month: 10, day: 1), "Celebration of ending the fast", "Celebration marking the end of Ramadan; fasting is prohibited on this day; encouraged to fast 6 days in Shawwal."),
 
             ("First 10 Days of Dhul-Hijjah", DateComponents(year: currentHijriYear, month: 12, day: 1), "Most beloved days", "The best days for righteous deeds; fasting the first nine days and dhikr are highly encouraged (the 10th is Eid al-Adha, on which fasting is not permitted)."),
@@ -782,13 +1023,13 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
     // MARK: - [Al-Adhan] Prayer - @AppStorage (notifications, travel, calculation, alerts)
 
     @AppStorage("dateNotifications") var dateNotifications = true {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
 
     /// Also remind one day BEFORE each Islamic date (e.g. the day before Ramadan begins), so the
     /// day itself never arrives unannounced. Only meaningful while `dateNotifications` is on.
     @AppStorage("dateNotificationsDayBefore") var dateNotificationsDayBefore = true {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
 
     @AppStorage("switchHijriDateAtMaghrib") var switchHijriDateAtMaghrib: Bool = false {
@@ -804,10 +1045,10 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
     }
 
     @AppStorage("naggingMode") var naggingMode: Bool = false {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("naggingStartOffset") var naggingStartOffset: Int = 30 {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("adhanNotificationSound") var adhanNotificationSound: String = Settings.defaultAdhanSoundID {
         didSet {
@@ -815,10 +1056,10 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
             // The new adhan's notification cuts are rendered on the device (AdhanClipStore); the reschedule
             // below runs with whatever exists now and runs once more when the cuts land.
             AdhanClipStore.ensureClips(for: adhanNotificationSound) { [weak self] rendered in
-                if rendered { self?.fetchPrayerTimes(notification: true) }
+                if rendered { self?.fetchPrayerTimesDebounced(notification: true) }
             }
             #endif
-            self.fetchPrayerTimes(notification: true)
+            self.fetchPrayerTimesDebounced(notification: true)
         }
     }
 
@@ -827,26 +1068,26 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
     // from every other app's alert. Defaults to Echo - the bundled 3.6-second chime that exists for exactly
     // this purpose. "default" restores the old system sound for anyone who preferred it.
     @AppStorage("alertToneSound") var alertToneSound: String = Settings.defaultAlertToneID {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
 
     // Per-prayer adhan length. iOS caps a notification sound at 30 seconds, so "full" means the 30-second cut
     // and "short" means a ~5-15s excerpt. Defaults to the full cut, which is what every existing user already
     // hears; opting a prayer down to the short clip is the new choice.
     @AppStorage("shortAdhanFajr") var shortAdhanFajr: Bool = false {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("shortAdhanDhuhr") var shortAdhanDhuhr: Bool = false {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("shortAdhanAsr") var shortAdhanAsr: Bool = false {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("shortAdhanMaghrib") var shortAdhanMaghrib: Bool = false {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("shortAdhanIsha") var shortAdhanIsha: Bool = false {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
 
     // Whether a prayer's at-time notification plays the chosen adhan at all. Off means an ordinary
@@ -858,19 +1099,19 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
     @AppStorage("adhanOverridesSilentMode") var adhanOverridesSilentMode: Bool = false
 
     @AppStorage("adhanSoundFajr") var adhanSoundFajr: Bool = true {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("adhanSoundDhuhr") var adhanSoundDhuhr: Bool = true {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("adhanSoundAsr") var adhanSoundAsr: Bool = true {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("adhanSoundMaghrib") var adhanSoundMaghrib: Bool = true {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("adhanSoundIsha") var adhanSoundIsha: Bool = true {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
 
     /// The sun arc, moon phase and starfield on the Adhan tab. Off falls back to the standalone
@@ -890,13 +1131,13 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
     }
 
     @AppStorage("preNotificationFajr") var preNotificationFajr: Int = 0 {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("notificationFajr") var notificationFajr: Bool = true {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("naggingFajr") var naggingFajr: Bool = false {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     /// The six manual-offset keys, in prayer order. This list is the contract between three
     /// processes (app, widget extension, watch complication): the didSets mirror these into the
@@ -916,118 +1157,118 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
     @AppStorage("offsetFajr") var offsetFajr: Int = 0 {
         didSet {
             mirrorOffsetToAppGroup(offsetFajr, key: "offsetFajr")
-            self.fetchPrayerTimes(force: true)
+            self.fetchPrayerTimesDebounced(force: true)
         }
     }
 
     @AppStorage("preNotificationSunrise") var preNotificationSunrise: Int = 0 {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("notificationSunrise") var notificationSunrise: Bool = true {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("naggingSunrise") var naggingSunrise: Bool = false {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("offsetSunrise") var offsetSunrise: Int = 0 {
         didSet {
             mirrorOffsetToAppGroup(offsetSunrise, key: "offsetSunrise")
-            self.fetchPrayerTimes(force: true)
+            self.fetchPrayerTimesDebounced(force: true)
         }
     }
 
     @AppStorage("preNotificationDhuhr") var preNotificationDhuhr: Int = 0 {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("notificationDhuhr") var notificationDhuhr: Bool = true {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("naggingDhuhr") var naggingDhuhr: Bool = false {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("offsetDhuhr") var offsetDhuhr: Int = 0 {
         didSet {
             mirrorOffsetToAppGroup(offsetDhuhr, key: "offsetDhuhr")
-            self.fetchPrayerTimes(force: true)
+            self.fetchPrayerTimesDebounced(force: true)
         }
     }
 
     @AppStorage("preNotificationAsr") var preNotificationAsr: Int = 0 {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("notificationAsr") var notificationAsr: Bool = true {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("naggingAsr") var naggingAsr: Bool = false {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("offsetAsr") var offsetAsr: Int = 0 {
         didSet {
             mirrorOffsetToAppGroup(offsetAsr, key: "offsetAsr")
-            self.fetchPrayerTimes(force: true)
+            self.fetchPrayerTimesDebounced(force: true)
         }
     }
 
     @AppStorage("preNotificationMaghrib") var preNotificationMaghrib: Int = 0 {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("notificationMaghrib") var notificationMaghrib: Bool = true {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("naggingMaghrib") var naggingMaghrib: Bool = false {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("offsetMaghrib") var offsetMaghrib: Int = 0 {
         didSet {
             mirrorOffsetToAppGroup(offsetMaghrib, key: "offsetMaghrib")
-            self.fetchPrayerTimes(force: true)
+            self.fetchPrayerTimesDebounced(force: true)
         }
     }
 
     @AppStorage("preNotificationIsha") var preNotificationIsha: Int = 0 {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("notificationIsha") var notificationIsha: Bool = true {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("naggingIsha") var naggingIsha: Bool = false {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("offsetIsha") var offsetIsha: Int = 0 {
         didSet {
             mirrorOffsetToAppGroup(offsetIsha, key: "offsetIsha")
-            self.fetchPrayerTimes(force: true)
+            self.fetchPrayerTimesDebounced(force: true)
         }
     }
 
     @AppStorage("preNotificationDuha") var preNotificationDuha: Int = 0 {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("notificationDuha") var notificationDuha: Bool = true {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("naggingDuha") var naggingDuha: Bool = false {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
 
     @AppStorage("preNotificationIslamicMidnight") var preNotificationIslamicMidnight: Int = 0 {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("notificationIslamicMidnight") var notificationIslamicMidnight: Bool = true {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("naggingIslamicMidnight") var naggingIslamicMidnight: Bool = false {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
 
     @AppStorage("preNotificationLastThird") var preNotificationLastThird: Int = 0 {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("notificationLastThird") var notificationLastThird: Bool = true {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("naggingLastThird") var naggingLastThird: Bool = false {
-        didSet { self.fetchPrayerTimes(notification: true) }
+        didSet { self.fetchPrayerTimesDebounced(notification: true) }
     }
 
     @AppStorage("travelAutomatic") var travelAutomatic: Bool = true
@@ -1075,7 +1316,7 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
             // the user's angles sit from those.
             if Self.isAppProcess { appGroupUserDefaults?.setValue(customFajrAngle, forKey: "customFajrAngle") }
             Settings.invalidatePrayerComputationCache()
-            fetchPrayerTimes(force: true, runAutoChecks: false)
+            fetchPrayerTimesDebounced(force: true, runAutoChecks: false)
         }
     }
     @AppStorage("customIshaAngle") var customIshaAngle: Double = 17.0 {
@@ -1083,7 +1324,7 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
             guard oldValue != customIshaAngle else { return }
             if Self.isAppProcess { appGroupUserDefaults?.setValue(customIshaAngle, forKey: "customIshaAngle") }
             Settings.invalidatePrayerComputationCache()
-            fetchPrayerTimes(force: true, runAutoChecks: false)
+            fetchPrayerTimesDebounced(force: true, runAutoChecks: false)
         }
     }
 
@@ -1115,9 +1356,7 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
 
     @AppStorage("currentCountryCode") var currentCountryCode: String = ""
 
-    @AppStorage("showLocationAlert") var showLocationAlert: Bool = false {
-        willSet { objectWillChange.send() }
-    }
+    @AppStorage("showLocationAlert") var showLocationAlert: Bool = false
     @AppStorage("showNotificationAlert") var showNotificationAlert: Bool = false
 
     @AppStorage("locationNeverAskAgain") var locationNeverAskAgain = false
@@ -1127,22 +1366,44 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
 
     // MARK: - [Al-Adhan] Optional Prayer Times (shown in app only, never in widgets)
 
+    // No manual `objectWillChange.send()` on these (or anywhere): `@AppStorage` inside an
+    // ObservableObject publishes on its own, so the old willSets made every toggle render twice.
     @AppStorage("showDuha") var showDuha: Bool = false {
-        willSet { objectWillChange.send() }
-        didSet { fetchPrayerTimes(notification: true) }
+        didSet { fetchPrayerTimesDebounced(notification: true) }
     }
     
     @AppStorage("showIslamicMidnight") var showIslamicMidnight: Bool = false {
-        willSet { objectWillChange.send() }
-        didSet { fetchPrayerTimes(notification: true) }
+        didSet { fetchPrayerTimesDebounced(notification: true) }
     }
     @AppStorage("showLastThird") var showLastThird: Bool = false {
-        willSet { objectWillChange.send() }
-        didSet { fetchPrayerTimes(notification: true) }
+        didSet { fetchPrayerTimesDebounced(notification: true) }
     }
 
     /// Names of optional/informational prayer times shown in the app, but not widgets.
     static let optionalPrayerNames: Set<String> = ["Duhaa", "Islamic Midnight", "Last Third"]
+
+    // MARK: - [Islam tab] The daily boundary
+
+    /// Every "of the day" feature turns over at Fajr (from the prayer calculation) rather than at
+    /// midnight; see `DailyRollover`. Off, or with no location, the boundary is midnight.
+    /// (In Al-Islam these sit in the Quran block, next to the Ayah of the Day; this app has no
+    /// Quran tab but shares the Reminder, Dua and Name of the Day, so they live here.)
+    @AppStorage("dailyRolloverAtFajr") var dailyRolloverAtFajr: Bool = true
+    /// The Reminder of the Day presented once a day when the app opens (from the second day on).
+    @AppStorage("showDailyReminderSheet") var showDailyReminderSheet: Bool = true
+    /// The daily boundary's memos (DailyRollover.swift): one Fajr per (day, prayer inputs) and one
+    /// 30-day table per day, both read on the main thread only. Plain stored vars: never published.
+    var dailyFajrMemo: (day: Date, signature: String, fajr: Date?)?
+    var fajrTableMemo: (day: Date, days: Int, signature: String, table: [String: TimeInterval])?
+
+    /// Stable yyyy-MM-dd key for a date, used by the daily boundary and the activity log.
+    static func dayKey(_ date: Date = Date()) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: date)
+    }
 
     // MARK: - [Islam tab] Arabic letters & 99 Names
     
@@ -1176,8 +1437,23 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
         set { gridModeIslamRaw = newValue ? 1 : 0 }
     }
     
+    /// The reader's default point sizes, iPad and Mac: the same 28 pt Arabic / 17 pt English that
+    /// fill an iPhone column sit in an 800 pt one there, so a fresh install starts 15% larger. Only
+    /// the DEFAULT - a size the user has set is a size the user keeps (2026-09-06 iPad/Mac pass).
+    private static let readerDefaultScale: Double = {
+        #if os(iOS)
+        return UIDevice.current.userInterfaceIdiom == .phone ? 1 : 1.15
+        #else
+        return 1
+        #endif
+    }()
+
+    /// Ayat quoted on the Islam-tab pages are drawn without tashkeel when this is on. (In Al-Islam
+    /// it is the Quran reader's own setting; here only the quoting screens read it.)
+    @AppStorage("cleanArabicText") var cleanArabicText: Bool = false
+
     @AppStorage("THEfontArabic") var fontArabic: String = "KFGQPCHAFSUthmanicScript-Regula"
-    @AppStorage("fontArabicSize") var fontArabicSize: Double = Double(UIFont.preferredFont(forTextStyle: .title1).pointSize)
+    @AppStorage("fontArabicSize") var fontArabicSize: Double = (Double(UIFont.preferredFont(forTextStyle: .title1).pointSize) * Settings.readerDefaultScale).rounded()
     @AppStorage("useFontArabic") var useFontArabic = true
     /// Raw storage for `arabicScriptStyle` (see SettingsQuran). Empty means the reader has never
     /// chosen, which resolves to Madani - the effective default. A value written here is always an
@@ -1453,6 +1729,19 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
             .removingAlifWiqayaForSearch
     }
 
+    /// The transliteration's search twin. The natural-reading scheme the ayahs carry doubles long
+    /// vowels ("Rahmaanir Raheem", "Qaiyoom") and joins particles with hyphens ("wa-laa"), so a
+    /// reader who types "rahman" or "raheem" the short way would miss. The index keeps BOTH the
+    /// plain fold and this one; the query is never folded, so English words ("book", "see") are
+    /// untouched.
+    func foldedTransliterationForSearch(_ text: String) -> String {
+        var folded = cleanSearch(text)
+        for (long, short) in [("aa", "a"), ("ee", "i"), ("ii", "i"), ("oo", "u"), ("uu", "u")] {
+            folded = folded.replacingOccurrences(of: long, with: short)
+        }
+        return folded
+    }
+
     /// The hamza-PRECISION lane: the same fold as `cleanSearch` except every hamza - the bare ء and the
     /// waw/ya-seated ؤ ئ - survives as a single ء instead of being dropped or folded to its seat.
     ///
@@ -1632,6 +1921,17 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
 
     @AppStorage("defaultView") var defaultView: Bool = true
 
+    /// Classic Look: the chrome from before iOS 26 (material pills, opaque bars) instead of Liquid
+    /// Glass on systems that have it. Every app-drawn glass surface routes through
+    /// `ConditionalGlassEffect`, which reads the resolved flag from the appearance snapshot
+    /// (`AppearanceEnvironment.liquidGlass`); the system's own tab bar, navigation bars and sheets
+    /// keep the system look, which only the build-time `UIDesignRequiresCompatibility` key changes.
+    @AppStorage("classicLook") var classicLook: Bool = false
+
+    /// Switch to the Classic Look automatically while Low Power Mode is on. Glass is a per-surface
+    /// backdrop pass; on the reduced tier the classic fallback is a flat fill, the cheapest thing there is.
+    @AppStorage("classicLookInLowPower") var classicLookInLowPower: Bool = true
+
     /// The soft accent-colored radial wash at the top of every list (see `washedListBackground`).
     @AppStorage("showAccentGlow") var showAccentGlow: Bool = true
 
@@ -1741,11 +2041,18 @@ final class Settings: NSObject, CLLocationManagerDelegate, ObservableObject {
 
     /// Tint blended into Liquid Glass cards/controls for custom themes, so glass reads as warm cream
     /// (Sepia) or neutral charcoal (Gray) instead of plain white/black. Nil = untinted system glass.
+    ///
+    /// A faint veil, not a paint: at 0.55 of a saturated tan / mid grey every glass surface came out as
+    /// a solid tinted block (measured on iOS 26: the clear-glass summary tiles were #e1cfa9 on a #ede5d1
+    /// card in Sepia and #47474a on #303033 in Gray, where Light and Dark keep a 4% step), which Abu read
+    /// as "too tinted" with "wayyy too less opacity" (2026-09-05). The colors now sit close to the theme's
+    /// own ground at about a quarter of the strength, so the glass keeps its depth and the theme shows
+    /// through as a hue.
     var themeGlassTint: Color? {
         switch colorSchemeString {
-        case "sepia": return Color(red: 0.85, green: 0.74, blue: 0.50).opacity(0.55)
-        case "gray":  return Color(red: 0.33, green: 0.33, blue: 0.35).opacity(0.55)
-        case "custom": return adjustedCustomBackground(by: (customBackgroundLuminance ?? 1) < 0.5 ? 0.12 : -0.08)?.opacity(0.55)
+        case "sepia": return Color(red: 0.90, green: 0.83, blue: 0.69).opacity(0.32)
+        case "gray":  return Color(red: 0.36, green: 0.36, blue: 0.38).opacity(0.22)
+        case "custom": return adjustedCustomBackground(by: (customBackgroundLuminance ?? 1) < 0.5 ? 0.12 : -0.08)?.opacity(0.25)
         default:      return nil
         }
     }

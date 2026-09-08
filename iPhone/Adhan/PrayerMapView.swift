@@ -6,6 +6,8 @@ import CoreLocation
 
 struct PrayerTimesMapView: View {
     @ObservedObject private var settings = Settings.shared
+    /// Prayer times and the location publish from `LiveState`, not `Settings` (see its comment).
+    @ObservedObject private var live = LiveState.shared
     @Environment(\.dismiss) private var dismiss
 
     @AppStorage("prayerTimesMapShowCityTime") private var showCityTime: Bool = true
@@ -17,6 +19,13 @@ struct PrayerTimesMapView: View {
     @State private var compareAutomaticLocation = false
     @State private var timeZones: [String: TimeZone] = [:]
 
+    // Optional times for this view-only screen. Each follows the user's own Adhan toggle until
+    // it is flipped here, then remembers that choice; the real toggles (and so notifications,
+    // widgets and the Adhan tab) are never touched from this sheet.
+    @AppStorage("prayerTimesMapShowDuha") private var mapShowDuha: Bool?
+    @AppStorage("prayerTimesMapShowIslamicMidnight") private var mapShowIslamicMidnight: Bool?
+    @AppStorage("prayerTimesMapShowLastThird") private var mapShowLastThird: Bool?
+
     // The selected city always uses the calculation method auto-matched to its own country
     // (detected via reverse-geocoding). The current-location side of a comparison always
     // keeps the user's own global method.
@@ -25,11 +34,11 @@ struct PrayerTimesMapView: View {
     private let columnWidth: CGFloat = 80
 
     private var effectiveLocation: Location? {
-        selectedLocation ?? settings.currentLocation
+        selectedLocation ?? live.currentLocation
     }
 
     private var canCompareAutomaticLocation: Bool {
-        guard let current = settings.currentLocation,
+        guard let current = live.currentLocation,
               let selected = selectedLocation else { return false }
         return !isSameLocation(current, selected)
     }
@@ -44,15 +53,28 @@ struct PrayerTimesMapView: View {
     }
 
     var body: some View {
-        List {
-            heroSection
-            if !settings.favoriteLocations.isEmpty {
-                favoritesSection
+        ScrollViewReader { proxy in
+            List {
+                heroSection
+                if !settings.favoriteLocations.isEmpty {
+                    favoritesSection
+                }
+                if selectedLocation != nil {
+                    optionsSection
+                }
+                prayerTimesSection
+                optionalTimesSection
+                    .id("optionalTimes")
             }
-            if selectedLocation != nil {
-                optionsSection
+            #if DEBUG
+            // "-cityPrayerTimesScrollToOptional": land on the optional-times switches (screenshot runs).
+            .onAppear {
+                guard ProcessInfo.processInfo.arguments.contains("-cityPrayerTimesScrollToOptional") else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                    withAnimation { proxy.scrollTo("optionalTimes", anchor: .bottom) }
+                }
             }
-            prayerTimesSection
+            #endif
         }
         .applyConditionalListStyle()
         .navigationTitle("City Prayer Times")
@@ -74,7 +96,27 @@ struct PrayerTimesMapView: View {
             .environmentObject(settings)
             .smallMediumSheetPresentation()
         }
-        .onAppear { refreshPrayers() }
+        .onAppear {
+            refreshPrayers()
+            #if DEBUG
+            // "-cityPrayerTimesCity Makkah:21.4225:39.8262" selects that city on appear, and
+            // "-cityPrayerTimesCompare" also switches the comparison on (screenshot runs).
+            let args = ProcessInfo.processInfo.arguments
+            // "-cityPrayerTimesOptional" switches all three optional times on for this screen.
+            if args.contains("-cityPrayerTimesOptional") {
+                mapShowDuha = true; mapShowIslamicMidnight = true; mapShowLastThird = true
+            }
+            if let i = args.firstIndex(of: "-cityPrayerTimesCity"), args.indices.contains(i + 1) {
+                let parts = args[i + 1].split(separator: ":")
+                if parts.count == 3, let lat = Double(parts[1]), let lon = Double(parts[2]) {
+                    selectedLocation = Location(city: String(parts[0]), latitude: lat, longitude: lon)
+                    if args.contains("-cityPrayerTimesCompare") {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { compareAutomaticLocation = true }
+                    }
+                }
+            }
+            #endif
+        }
         .onChange(of: selectedDate) { _ in refreshPrayers() }
         .onChange(of: selectedLocation) { newValue in
             if newValue == nil {
@@ -89,7 +131,60 @@ struct PrayerTimesMapView: View {
         }
         .onChange(of: selectedCalculation) { _ in refreshPrayers() }
         .onChange(of: showCityTime) { _ in settings.hapticFeedback(); refreshTimeZones() }
-        .onChange(of: settings.currentLocation) { _ in refreshPrayers() }
+        .onChange(of: live.currentLocation) { _ in refreshPrayers() }
+        .onChange(of: showDuhaHere) { _ in refreshPrayers() }
+        .onChange(of: showIslamicMidnightHere) { _ in refreshPrayers() }
+        .onChange(of: showLastThirdHere) { _ in refreshPrayers() }
+    }
+
+    // MARK: - Optional Times
+
+    private var showDuhaHere: Bool { mapShowDuha ?? settings.showDuha }
+    private var showIslamicMidnightHere: Bool { mapShowIslamicMidnight ?? settings.showIslamicMidnight }
+    private var showLastThirdHere: Bool { mapShowLastThird ?? settings.showLastThird }
+
+    private var showsAnyOptionalTime: Bool {
+        showDuhaHere || showIslamicMidnightHere || showLastThirdHere
+    }
+
+    @ViewBuilder
+    private var optionalTimesSection: some View {
+        if effectiveLocation != nil {
+            Section {
+                optionalTimeToggle("Duhaa", icon: "sun.haze.fill", isOn: optionalBinding($mapShowDuha, fallback: settings.showDuha))
+                optionalTimeToggle("Islamic Midnight", icon: "moon.fill", isOn: optionalBinding($mapShowIslamicMidnight, fallback: settings.showIslamicMidnight))
+                optionalTimeToggle("Last Third of the Night", icon: "moon.stars.fill", isOn: optionalBinding($mapShowLastThird, fallback: settings.showLastThird))
+            } header: {
+                Text("Optional Times")
+            } footer: {
+                Text(isComparing
+                     ? "Computed for both cities from their own sunrise, Maghrib and next Fajr. These switches only affect this screen."
+                     : "Computed from this city\u{2019}s own sunrise, Maghrib and next Fajr. These switches only affect this screen.")
+            }
+        }
+    }
+
+    /// A `Bool?` store that reads as the user's real toggle until it is set here.
+    private func optionalBinding(_ stored: Binding<Bool?>, fallback: Bool) -> Binding<Bool> {
+        Binding(
+            get: { stored.wrappedValue ?? fallback },
+            set: { stored.wrappedValue = $0 }
+        )
+    }
+
+    private func optionalTimeToggle(_ title: String, icon: String, isOn: Binding<Bool>) -> some View {
+        Toggle(isOn: isOn.animation(.easeInOut)) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .foregroundColor(settings.accentColor.color)
+                    .frame(width: 22, alignment: .center)
+                Text(title)
+                    .foregroundColor(.primary)
+            }
+            .font(.subheadline)
+        }
+        .tint(settings.accentColor.color)
+        .onChange(of: isOn.wrappedValue) { _ in settings.hapticFeedback() }
     }
 
     // MARK: - Hero
@@ -239,7 +334,7 @@ struct PrayerTimesMapView: View {
     private var optionsSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 6) {
-                Picker("Show Times In", selection: $showCityTime.animation(.easeInOut)) {
+                Picker("Show Times In", selection: $showCityTime) {
                     Text("City Time").tag(true)
                     Text("My Time").tag(false)
                 }
@@ -287,7 +382,7 @@ struct PrayerTimesMapView: View {
     private var prayerTimesSection: some View {
         if let location = effectiveLocation {
             Section {
-                if isComparing, let current = settings.currentLocation, let selected = selectedLocation {
+                if isComparing, let current = live.currentLocation, let selected = selectedLocation {
                     comparisonContent(current: current, selected: selected)
                 } else if prayers.isEmpty {
                     emptyPrayersLabel
@@ -456,15 +551,36 @@ struct PrayerTimesMapView: View {
         // The selected city uses its own (auto-detected or manually chosen) method.
         // The current location always keeps the user's own global method.
         let override = (selectedLocation == nil || selectedCalculation.isEmpty) ? nil : selectedCalculation
-        prayers = settings.getPrayerTimes(for: selectedDate, at: location, fullPrayers: true, calculationOverride: override) ?? []
-        if canCompareAutomaticLocation, let current = settings.currentLocation {
-            currentLocationPrayers = settings.getPrayerTimes(for: selectedDate, at: current, fullPrayers: true) ?? []
+        prayers = prayersWithOptionalTimes(at: location, calculationOverride: override)
+        if canCompareAutomaticLocation, let current = live.currentLocation {
+            currentLocationPrayers = prayersWithOptionalTimes(at: current, calculationOverride: nil)
         } else {
             currentLocationPrayers = []
             compareAutomaticLocation = false
         }
 
         refreshTimeZones()
+    }
+
+    /// The base prayers for `location` plus whichever optional times are switched on for this screen,
+    /// each computed for that location (and, for the selected city, with its own method).
+    private func prayersWithOptionalTimes(at location: Location, calculationOverride: String?) -> [Prayer] {
+        let base = settings.getPrayerTimes(for: selectedDate, at: location, fullPrayers: true, calculationOverride: calculationOverride) ?? []
+        guard !base.isEmpty, showsAnyOptionalTime else { return base }
+
+        let optional = settings.optionalPrayers(
+            for: selectedDate,
+            at: location,
+            calculationOverride: calculationOverride,
+            duha: showDuhaHere,
+            islamicMidnight: showIslamicMidnightHere,
+            lastThird: showLastThirdHere
+        )
+        guard !optional.isEmpty else { return base }
+
+        let existingNames = Set(base.map(\.nameTransliteration))
+        return (base + optional.filter { !existingNames.contains($0.nameTransliteration) })
+            .sorted { $0.time < $1.time }
     }
 
     /// Reverse-geocodes the selected city to find its country, then (when automatic) picks the
@@ -504,7 +620,7 @@ struct PrayerTimesMapView: View {
         if let location = effectiveLocation {
             requestTimeZone(for: location)
         }
-        if canCompareAutomaticLocation, let current = settings.currentLocation {
+        if canCompareAutomaticLocation, let current = live.currentLocation {
             requestTimeZone(for: current)
         }
     }

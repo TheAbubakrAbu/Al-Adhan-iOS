@@ -1,6 +1,23 @@
 #if os(iOS)
 import SwiftUI
 
+/// The one owner of `isIdleTimerDisabled` (Phase 5 step 12): the display stays awake while a Quran
+/// reader is on screen (reading, or following a recitation), and only on the full tier. Playback
+/// used to own it, which kept the screen on while audio played from any tab.
+@MainActor
+enum ScreenAwake {
+    static var readerVisible = false {
+        didSet { apply() }
+    }
+
+    static func apply() {
+        let wanted = readerVisible && PerformanceProfile.shared.tier != .reduced
+        if UIApplication.shared.isIdleTimerDisabled != wanted {
+            UIApplication.shared.isIdleTimerDisabled = wanted
+        }
+    }
+}
+
 /// The app's foreground/background orchestration, in one named place.
 ///
 /// This is deliberately NOT in `Settings`: a phase change touches several subsystems (playback
@@ -17,6 +34,7 @@ enum AppLifecycle {
     /// touches (players, stores, location) is main-actor state.
     @MainActor
     static func scenePhaseChanged(to phase: ScenePhase) {
+        installMemoryWarningPurge()
         adhanScenePhaseChanged(to: phase)
         sharedScenePhaseChanged(to: phase)
     }
@@ -50,6 +68,23 @@ enum AppLifecycle {
         }
     }
 
+    // MARK: - Memory pressure (Phase 5 step 13)
+
+    /// The session caches that are pure speed-ups and rebuild themselves on demand. One observer,
+    /// installed on the first scene-phase change (the `NSCache`s already shed on their own).
+    /// (Al-Islam purges its Quran reader's tables here too; this app ships no Quran reader.)
+    private static var memoryWarningObserver: NSObjectProtocol?
+
+    @MainActor
+    private static func installMemoryWarningPurge() {
+        guard memoryWarningObserver == nil else { return }
+        memoryWarningObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main
+        ) { _ in
+            Task { @MainActor in MemoryTrim.trimAll() }
+        }
+    }
+
     // MARK: - Shared (watch sync - keep in every app that ships a watch companion)
 
     @MainActor
@@ -58,6 +93,21 @@ enum AppLifecycle {
         // Send any just-made setting change before the app is suspended, so it can't be lost (and
         // can't be reverted by a stale synced value on the next launch).
         WatchConnectivityManager.shared.flushPendingSync()
+    }
+}
+
+/// The one owner of the memory-warning trim for the stores the Tilawa port added (Tilawa Guide,
+/// Phase 8 step 5): every large store registers here rather than growing an observer of its own.
+/// Each call is safe when nothing is loaded.
+enum MemoryTrim {
+    @MainActor
+    static func trimAll() {
+        // The Miracles library and its decoded illustrations (a 40-frame animation is ~27 MB).
+        MiraclesStore.shared.unload()
+        MiracleImageLoader.purgeDecodedImages()
+        #if DEBUG
+        MemoryFootprint.logLater("memory warning trim", delay: 2)
+        #endif
     }
 }
 

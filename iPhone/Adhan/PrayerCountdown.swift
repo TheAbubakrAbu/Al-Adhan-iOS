@@ -17,23 +17,30 @@ struct PrayerCountdown: View {
     var showPrayerInfoKey: Bool = Settings.shared.showPrayerInfo
 
     @ObservedObject private var settings = Settings.shared
+    /// Prayer times and the location publish from `LiveState`, not `Settings` (see its comment).
+    @ObservedObject private var live = LiveState.shared
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var progress: Double = 0
     @State private var updateTimer: Timer?
 
-    private let slowTimerInterval: TimeInterval = 60
-    private let mediumTimerInterval: TimeInterval = 15
-    private let fastTimerInterval: TimeInterval = 5
-    private let urgentTimerInterval: TimeInterval = 1
-    private let urgentThreshold: TimeInterval = 30
-    private let fastThreshold: TimeInterval = 120
-    private let mediumThreshold: TimeInterval = 600
+    /// The progress bar's refresh. The visible countdown is a self-updating `Text(style: .timer)`, so
+    /// nothing here needs to tick faster than the bar can visibly move; the current/next flip is
+    /// scheduled at the boundary itself (`nextRefreshInterval`). The old 60/15/5/1 s ladder re-merged
+    /// and re-sorted three days of prayers once a second for the last half minute before every adhan.
+    private let progressTickInterval: TimeInterval = 60
 
-    private var currentPrayer: Prayer? { settings.currentPrayer }
-    private var nextPrayer: Prayer? { settings.nextPrayer }
+    /// The gap between the countdown digits and the progress bar under them, on both cards. The digits'
+    /// line height already leaves air beneath the glyphs, so the stack's 10 pt read as twice that
+    /// (Abu, 2026-09-07: "the padding between the line and time left is too big").
+    private static let digitsToBarSpacing: CGFloat = 3
+
+    private var currentPrayer: Prayer? { live.currentPrayer }
+    private var nextPrayer: Prayer? { live.nextPrayer }
 
     var body: some View {
+        let _ = RenderCounter.hit("PrayerCountdown")
+        let _ = ChangePrinter.hit(Self.self)
         if let currentPrayer, let nextPrayer {
             countdownContent(current: currentPrayer, next: nextPrayer)
         }
@@ -51,7 +58,7 @@ struct PrayerCountdown: View {
             .onChange(of: scenePhase) { phase in
                 handleScenePhaseChange(phase)
             }
-            .onChange(of: settings.prayers) { _ in
+            .onChange(of: live.prayers) { _ in
                 refreshProgressAndPrayerState()
                 startTimer()
             }
@@ -80,9 +87,10 @@ struct PrayerCountdown: View {
             #endif
         case .skyFooter:
             // No `Section` - the sky card already is one, and a nested section inside a list row breaks it.
-            VStack(spacing: 2) {
+            // The big centred countdown over the bar; the card draws the moon and "until X" footer itself.
+            VStack(spacing: Self.digitsToBarSpacing) {
+                bigTimeLeft(next: next)
                 countdownProgress(next: next)
-                timeLeftRow(next: next)
             }
             .lineLimit(1)
             .minimumScaleFactor(0.25)
@@ -102,18 +110,21 @@ struct PrayerCountdown: View {
             }
     }
 
+    /// The plain card (sky off), in the sky card's grammar: the two prayer columns, the countdown big
+    /// and centred, the bar, then the moon and "until X" on one footer line (Abu, 2026-09-04, from the
+    /// sky mock-up: "the time left is big in the middle and whatnot").
     private func countdownBody(current: Prayer, next: Prayer) -> some View {
-        VStack {
+        VStack(spacing: 10) {
             prayerSummary(current: current, next: next)
-            countdownProgress(next: next)
-            timeLeftRow(next: next)
+            VStack(spacing: Self.digitsToBarSpacing) {
+                bigTimeLeft(next: next)
+                countdownProgress(next: next)
+            }
+            footerRow(next: next)
         }
         .lineLimit(1)
         .minimumScaleFactor(0.25)
-        // Tightened: the card was carrying a lot of empty vertical space.
-        .padding(.vertical, {
-            if #available(iOS 26, *) { return 0 } else { return 4 }
-        }())
+        .padding(.vertical, 4)
     }
 
     private var sectionHeader: some View {
@@ -238,23 +249,47 @@ struct PrayerCountdown: View {
         #endif
     }
 
-    /// Was a plain "Time Left: 00:12:34" headline - visually a relic next to the rest of the card. Now it
-    /// reads as a compact meter caption: a muted label on the left, the live timer in the accent on the right.
-    private func timeLeftRow(next: Prayer) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "hourglass")
-                .font(.caption2)
+    /// The countdown as the card's centrepiece: a small "TIME LEFT" caption over big rounded digits,
+    /// hours and minutes large and the seconds a step smaller. Inherits the card's foreground (white on
+    /// the sky, primary on the plain card); the caption is the secondary shade of that. One step below
+    /// `caption2`, and 26 pt digits (36, then 30): Abu found them "a little too big" on 2026-09-05 and
+    /// "still a little too big" on 2026-09-07.
+    private func bigTimeLeft(next: Prayer) -> some View {
+        VStack(spacing: 2) {
+            HStack(spacing: 4) {
+                Image(systemName: "hourglass")
+                Text("TIME LEFT")
+            }
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.secondary)
 
-            Text("Time left")
-                .font(.caption)
-
-            Spacer(minLength: 4)
-
-            Text(next.time, style: .timer)
-                .font(.caption.monospacedDigit().weight(.semibold))
+            CountdownDigits(target: next.time)
         }
-        .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity)
+    }
+
+    /// "until Fajr": the footer's right side, shared with the sky card.
+    static func untilLabel(for prayer: Prayer) -> String {
+        "until \(countdownDisplayName(for: prayer))"
+    }
+
+    /// The plain card's footer: tonight's moon on the left, the prayer the countdown runs to on the right.
+    private func footerRow(next: Prayer) -> some View {
+        HStack(spacing: 6) {
+            #if os(iOS)
+            let phase = MoonPhase.onCurrentHour()
+            MoonPhaseGlyph(illumination: phase.illumination, isWaxing: phase.isWaxing)
+                .frame(width: 14, height: 14)
+            Text("\(phase.name) · \(phase.illuminationPercent)%")
+            #endif
+
+            Spacer(minLength: 8)
+
+            Text(Self.untilLabel(for: next))
+                .fontWeight(.semibold)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
 
     private func handleScenePhaseChange(_ phase: ScenePhase) {
@@ -302,30 +337,41 @@ struct PrayerCountdown: View {
 
     private func startTimer() {
         stopTimer()
-        let interval = nextRefreshInterval()
+        let (interval, atBoundary) = nextRefreshInterval()
         updateTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { _ in
             DispatchQueue.main.async {
-                refreshProgressAndPrayerState()
+                if atBoundary {
+                    // The adhan moment: re-resolve current/next (which restarts this timer through
+                    // `.onChange(of: nextPrayer)`) and move the bar.
+                    refreshProgressAndPrayerState()
+                } else {
+                    // A progress tick: the bar moves, the hijri date is re-checked (cheap, self-guarded);
+                    // no timeline merge.
+                    settings.updateDates()
+                    updateProgress()
+                }
                 startTimer()
             }
         }
-        updateTimer?.tolerance = min(interval * 0.2, 5)
+        // A boundary fire must land on time (the label flips from "Asr" to "Maghrib" at the adhan); the
+        // progress tick can drift, which lets the system coalesce it with other timers.
+        updateTimer?.tolerance = atBoundary ? 0 : 5
     }
 
-    private func nextRefreshInterval() -> TimeInterval {
-        guard let nextPrayer else { return slowTimerInterval }
-
-        let remaining = nextPrayer.time.timeIntervalSinceNow
-        if remaining <= urgentThreshold {
-            return urgentTimerInterval
+    /// Seconds until the next refresh, and whether that refresh is the prayer boundary itself.
+    private func nextRefreshInterval() -> (TimeInterval, atBoundary: Bool) {
+        guard let nextPrayer else { return (progressTickInterval, false) }
+        // A quarter second past the boundary, so current/next resolve on its far side.
+        let untilBoundary = nextPrayer.time.timeIntervalSinceNow + 0.25
+        if untilBoundary <= 0 {
+            // Already past it and current/next still have not moved on (the day's list is stale until
+            // the next fetch): keep re-resolving, but at the slow tick, never in a tight loop.
+            return (progressTickInterval, true)
         }
-        if remaining <= fastThreshold {
-            return fastTimerInterval
+        if untilBoundary <= progressTickInterval {
+            return (untilBoundary, true)
         }
-        if remaining <= mediumThreshold {
-            return mediumTimerInterval
-        }
-        return slowTimerInterval
+        return (progressTickInterval, false)
     }
 
     private func stopTimer() {
@@ -348,8 +394,6 @@ extension PrayerCountdown: Equatable {
 }
 
 private struct CurrentPrayerCell: View {
-    @ObservedObject private var settings = Settings.shared
-
     let prayer: Prayer
 
     var body: some View {
@@ -389,8 +433,6 @@ private struct CurrentPrayerCell: View {
 }
 
 private struct UpcomingPrayerCell: View {
-    @ObservedObject private var settings = Settings.shared
-
     let prayer: Prayer
 
     var body: some View {
@@ -434,8 +476,10 @@ private func countdownDisplayName(for prayer: Prayer) -> String {
     prayer.nameTransliteration == "Islamic Midnight" ? "Midnight" : prayer.displayName
 }
 
+/// Leaf styling reads the accent off the appearance environment, not `Settings`: each of these
+/// cells was a whole-object subscriber that re-ran on every Settings publish.
 private struct PrayerTitleStyle: ViewModifier {
-    @ObservedObject private var settings = Settings.shared
+    @Environment(\.appearance) private var appearance
 
     let prayer: Prayer
 
@@ -446,12 +490,12 @@ private struct PrayerTitleStyle: ViewModifier {
             #else
             .font(.subheadline)
             #endif
-            .foregroundColor(prayer.nameTransliteration == "Shurooq" ? .primary : settings.accentColor.color)
+            .foregroundColor(prayer.nameTransliteration == "Shurooq" ? .primary : appearance.accent)
     }
 }
 
 private struct PrayerSubtitleView: View {
-    @ObservedObject private var settings = Settings.shared
+    @Environment(\.appearance) private var appearance
 
     let prayer: Prayer
     let alignment: TextAlignment
@@ -474,7 +518,7 @@ private struct PrayerSubtitleView: View {
     }
 
     private var subtitleColor: Color {
-        prayer.nameTransliteration == "Shurooq" ? .primary.opacity(0.7) : settings.accentColor.color.opacity(0.7)
+        prayer.nameTransliteration == "Shurooq" ? .primary.opacity(0.7) : appearance.accent.opacity(0.7)
     }
 
     var body: some View {
@@ -623,6 +667,45 @@ private struct PrayerSunnahInfoView: View {
             PrayerCountdown()
         }
         .applyConditionalListStyle(disableNowPlayingInset: true)
+    }
+}
+
+/// The big digits. Hours and minutes in one size, the seconds a step smaller: `Text(style: .timer)`
+/// cannot be split, so the full tier ticks a one-second timeline (this leaf only, never the card) and
+/// the reduced tier and Reduce Motion fall back to the system timer text in one size, which updates
+/// without any body evaluation at all.
+private struct CountdownDigits: View {
+    @Environment(\.appearance) private var appearance
+
+    let target: Date
+
+    var body: some View {
+        if appearance.reduceAnimations || appearance.isReducedTier {
+            Text(target, style: .timer)
+                .font(.system(size: 26, weight: .bold, design: .rounded).monospacedDigit())
+        } else {
+            TimelineView(.periodic(from: Date(), by: 1)) { context in
+                let parts = Self.parts(remaining: target.timeIntervalSince(context.date))
+                HStack(alignment: .lastTextBaseline, spacing: 1) {
+                    Text(parts.main)
+                        .font(.system(size: 26, weight: .bold, design: .rounded))
+                    Text(parts.seconds)
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .opacity(0.75)
+                }
+                .monospacedDigit()
+            }
+        }
+    }
+
+    /// "6:09" and ":35" for six hours, nine minutes and thirty-five seconds; never negative (a stale
+    /// target across a prayer boundary reads 0:00 until the card re-resolves).
+    static func parts(remaining: TimeInterval) -> (main: String, seconds: String) {
+        let total = max(0, Int(remaining.rounded(.down)))
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        return (String(format: "%d:%02d", hours, minutes), String(format: ":%02d", seconds))
     }
 }
 

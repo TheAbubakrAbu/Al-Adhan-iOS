@@ -203,11 +203,11 @@ extension Settings {
     /// minutes"), one of the non-obligatory times (Shurooq, Duhaa, Islamic Midnight, Last Third), or a
     /// prayer whose adhan the user has switched off.
     ///
-    /// All of those used to fall through to `UNNotificationSound.default` — the system tri-tone, which
+    /// All of those used to fall through to `UNNotificationSound.default`: the system tri-tone, which
     /// is indistinguishable from every other app's alert, so a reader had no way to know a notification
     /// came from the prayer app at all. That was the whole of the complaint, and it was never a missing
     /// recording: `echo` has been bundled the entire time, described in `supportedAdhanSounds` as "a
-    /// 3.6-second chime, not a call to prayer — for being told without being called". Nothing consulted
+    /// 3.6-second chime, not a call to prayer, for being told without being called". Nothing consulted
     /// it for these notifications because the guards returned `.default` first.
     ///
     /// Always the `-short` cut. A pre-alert that plays 30 seconds of adhan and is then followed by the
@@ -330,7 +330,12 @@ extension Settings {
     /// cold start can take a minute. This is why a whole flight used to pass with zero fixes.
     private static let offlineAcquisitionMaxDuration: TimeInterval = 90    // s
     /// Ignore sub-jitter coordinate changes when refining in place.
-    private static let refineMinMove: CLLocationDistance = 8               // m
+    /// A refining fix is committed only when it moves the saved point this far or sharpens the
+    /// accuracy by `refineMinAccuracyGain`. Each commit is a `currentLocation` publish (a JSON encode,
+    /// an App Group write and ~40 Adhan-tab observers), and indoors the burst used to commit every
+    /// 8 m / 5 m wobble for its full 25 s - that relayout was the "lag" people reported.
+    private static let refineMinMove: CLLocationDistance = 30              // m
+    private static let refineMinAccuracyGain: CLLocationDistance = 20      // m
     /// While moving, don't recompute more often than this even past the distance threshold.
     private static let movingCommitMinInterval: TimeInterval = 30          // s
     /// Refinements that move at least this far also recompute prayer times (smaller moves don't matter).
@@ -357,18 +362,25 @@ extension Settings {
     }
 
     private static var rawPrayerCache: [RawPrayerCacheKey: [Prayer]] = [:]
-    /// Insertion order for LRU eviction. Room for a couple of rendered calendar months plus the
-    /// countdown/widget days: a `[Prayer]` is a handful of tiny structs, so 96 entries is a few KB.
-    /// Eviction drops only the OLDEST entry - the old cap-10 `removeAll` wipe meant a month calendar
-    /// render thrashed the cache to zero hits and even evicted *today* out from under the countdown.
+    /// Insertion order for eviction. Room for the 13-month prayer calendar (~400 days) plus the
+    /// countdown, widget and tracker days: a `[Prayer]` is a handful of small structs, so 420 entries
+    /// is well under a megabyte. The old cap of 96 was smaller than the calendar it served, so the
+    /// build evicted its own first months and every later render recomputed them. Eviction drops only
+    /// the OLDEST entry - the older cap-10 `removeAll` wipe meant a month calendar render thrashed the
+    /// cache to zero hits and even evicted *today* out from under the countdown.
     private static var rawPrayerCacheOrder: [RawPrayerCacheKey] = []
-    private static let rawPrayerCacheLimit = 96
+    /// Index of the oldest live entry in `rawPrayerCacheOrder`: eviction advances it instead of
+    /// `removeFirst()` (a shift of the whole array), and the consumed prefix is dropped in one go
+    /// once it grows.
+    private static var rawPrayerCacheEvictionHead = 0
+    private static let rawPrayerCacheLimit = 420
 
     /// Drops memoized prayer times. Needed when something that is *baked into* a cached `Prayer` changes but
     /// isn't part of the cache key - custom prayer names, which alter the struct without altering the times.
     static func invalidatePrayerComputationCache() {
         rawPrayerCache.removeAll(keepingCapacity: true)
         rawPrayerCacheOrder.removeAll(keepingCapacity: true)
+        rawPrayerCacheEvictionHead = 0
     }
     private static let geocodeActor = GeocodeActor()
     private static let networkMonitor = NWPathMonitor()
@@ -483,12 +495,16 @@ extension Settings {
     func locationManager(_ mgr: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
         switch status {
         case .authorizedAlways, .authorizedWhenInUse:
-            showLocationAlert = false
+            // Guarded: an unconditional `@AppStorage` write is a publish even when nothing changed, and
+            // this path runs on every authorization callback.
+            if showLocationAlert { showLocationAlert = false }
+            // One self-terminating fix. The watch used to also `startUpdatingLocation()` here, which kept
+            // 100 m continuous updates streaming for its entire foreground life; a wrist app that shows
+            // prayer times needs one fix on wake plus the foreground cadence (`AppLifecycle`), not a
+            // live track.
             mgr.requestLocation()
             #if os(iOS)
             mgr.startMonitoringSignificantLocationChanges()
-            #else
-            mgr.startUpdatingLocation()
             #endif
             
         case .denied where !locationNeverAskAgain:
@@ -560,7 +576,7 @@ extension Settings {
         if refining {
             // Sitting in one place: accept a meaningfully better fix (or a small genuine move) so the
             // saved coordinate converges on the exact spot instead of keeping the first rough fix.
-            let moreAccurate = loc.horizontalAccuracy + 5 < (Self.lastFixAccuracy ?? .greatestFiniteMagnitude)
+            let moreAccurate = loc.horizontalAccuracy + Self.refineMinAccuracyGain <= (Self.lastFixAccuracy ?? .greatestFiniteMagnitude)
             guard moved >= Self.refineMinMove || moreAccurate else { return }
         } else {
             // Moving: only commit once you've actually relocated, and not more than once per interval,
@@ -581,10 +597,10 @@ extension Settings {
                 await updateCity(latitude: newCoord.latitude, longitude: newCoord.longitude)
             } else {
                 // Same place, just a sharper fix - keep the city label, sharpen the coordinates so the
-                // Qibla bearing and display use the most accurate position available.
-                withAnimation {
-                    currentLocation = Location(city: cur.city, latitude: newCoord.latitude, longitude: newCoord.longitude)
-                }
+                // Qibla bearing and display use the most accurate position available. A plain write:
+                // nothing visible moves (the city and the times are the same), and inside
+                // `withAnimation` the publish re-laid out the whole tab in an animation transaction.
+                currentLocation = Location(city: cur.city, latitude: newCoord.latitude, longitude: newCoord.longitude)
             }
             // Existing user with a location but no home yet: adopt the current location as home.
             seedHomeLocationIfNeeded()
@@ -619,6 +635,35 @@ extension Settings {
         #endif
     }
 
+    /// The expanded Qibla compass's burst: the one surface where a 12 m fix beats a 100 m one. Skipped
+    /// on the reduced tier (Low Power Mode is the wrong time to pin the GPS for 25 s) and when the
+    /// last commit is recent and already sharp. `refreshLocationIfStale`'s offline acquisition keeps
+    /// its own path through `beginLocationRefinement`: that one is about having a fix at all.
+    func beginLocationRefinementForCompass() {
+        #if os(iOS)
+        if PerformanceProfile.shared.tier == .reduced {
+            Self.logLocationBurst("skipped: reduced tier")
+            return
+        }
+        if let last = Self.lastLocationCommitAt, Date().timeIntervalSince(last) < 5 * 60,
+           let accuracy = Self.lastFixAccuracy, accuracy <= 50 {
+            Self.logLocationBurst("skipped: fix \(Int(Date().timeIntervalSince(last))) s old at \(Int(accuracy)) m")
+            return
+        }
+        Self.logLocationBurst(Self.isRefiningLocation ? "already running" : "start (compass)")
+        beginLocationRefinement()
+        #endif
+    }
+
+    /// `-renderCounter` (DEBUG): "LOCATION BURST ..." lines, so the burst gating can be read off the
+    /// simulator log next to the render counts.
+    private static func logLocationBurst(_ message: String) {
+        #if DEBUG
+        guard RenderCounter.enabled else { return }
+        NSLog("LOCATION BURST %@", message)
+        #endif
+    }
+
     func endLocationRefinement() {
         #if os(iOS)
         guard Self.isRefiningLocation else { return }
@@ -633,6 +678,7 @@ extension Settings {
         Self.locationManager.stopUpdatingLocation()
         Self.locationManager.distanceFilter = Self.halfMile
         Self.locationManager.desiredAccuracy = Self.restingAccuracy
+        Self.logLocationBurst("end")
         #endif
     }
 
@@ -644,7 +690,10 @@ extension Settings {
     // with single one-shot fixes - no continuous updates, no extra radio time when the last fix is recent.
 
     /// How stale the last committed fix may get while the app is frontmost before a one-shot refresh.
-    private static let foregroundLocationMaxAge: TimeInterval = 5 * 60
+    /// 15 minutes on the reduced tier: Low Power Mode is the wrong time to wake the GPS every five.
+    private static var foregroundLocationMaxAge: TimeInterval {
+        PerformanceProfile.shared.tier == .reduced ? 15 * 60 : 5 * 60
+    }
     private static var foregroundLocationTimer: Timer?
 
     /// Requests a fresh fix if the last committed one is older than `maxAge` (or none exists).
@@ -702,7 +751,7 @@ extension Settings {
             )
             currentCountryCode = ""
             Self.cityAnchor = nil
-            WidgetCenter.shared.reloadAllTimelines()
+            reloadWidgets(deferred: true)
         }
     }
     #endif
@@ -747,10 +796,9 @@ extension Settings {
                 Self.locationManager.requestAlwaysAuthorization()
             }
             Self.locationManager.startMonitoringSignificantLocationChanges()
-            #else
-            Self.locationManager.startUpdatingLocation()
             #endif
 
+            // The watch takes only this one-shot fix (see `didChangeAuthorization`).
             Self.locationManager.requestLocation()
         default:
             break
@@ -802,7 +850,7 @@ extension Settings {
                 currentCountryCode = ""
                 Self.cityAnchor = nil
             }
-            WidgetCenter.shared.reloadAllTimelines()
+            reloadWidgets(deferred: true)
         }
     }
 
@@ -1498,7 +1546,7 @@ extension Settings {
                        rakah: "2",
                        sunnahBefore: "0",
                        sunnahAfter: "2 and 2 (masjid) or 2 (home)",
-                       sunnahNote: "Pray 4 sunnah rakahs after Jumuah - as 2 then 2 - when praying at the masjid (Sahih Muslim 881), or 2 rakahs when praying at home (Sahih al-Bukhari 937).")
+                       sunnahNote: "Pray 4 sunnah rakahs after Jumuah (as 2 then 2) when praying at the masjid (Sahih Muslim 881), or 2 rakahs when praying at home (Sahih al-Bukhari 937).")
             )
         } else {
             list.append(prayer(from: "Dhuhr", time: dhuhr))
@@ -1519,9 +1567,15 @@ extension Settings {
             .sorted { ($0.element.time, $0.offset) < ($1.element.time, $1.offset) }
             .map(\.element)
 
-        while Self.rawPrayerCache.count >= Self.rawPrayerCacheLimit, let oldest = Self.rawPrayerCacheOrder.first {
-            Self.rawPrayerCacheOrder.removeFirst()
+        while Self.rawPrayerCache.count >= Self.rawPrayerCacheLimit,
+              Self.rawPrayerCacheEvictionHead < Self.rawPrayerCacheOrder.count {
+            let oldest = Self.rawPrayerCacheOrder[Self.rawPrayerCacheEvictionHead]
+            Self.rawPrayerCacheEvictionHead += 1
             Self.rawPrayerCache.removeValue(forKey: oldest)
+        }
+        if Self.rawPrayerCacheEvictionHead >= 128 {
+            Self.rawPrayerCacheOrder.removeFirst(Self.rawPrayerCacheEvictionHead)
+            Self.rawPrayerCacheEvictionHead = 0
         }
         Self.rawPrayerCache[cacheKey] = list
         Self.rawPrayerCacheOrder.append(cacheKey)
@@ -1551,8 +1605,31 @@ extension Settings {
         // and most users), the old order computed TWO days of prayer times per call - and
         // `prayerBoundaryTimeline` makes this call three times per widget refresh, all discarded.
         guard showDuha || showIslamicMidnight || showLastThird else { return [] }
+        guard let here = currentLocation else { return [] }
+        return optionalPrayers(
+            for: date,
+            at: here,
+            duha: showDuha,
+            islamicMidnight: showIslamicMidnight,
+            lastThird: showLastThird
+        )
+    }
 
-        let raw = _computeRawPrayers(for: date)
+    /// The optional times for an explicit location and an explicit set of toggles, so a view-only
+    /// screen (City Prayer Times) can show Duhaa, Islamic Midnight and Last Third for another city
+    /// without touching the user's own toggles. `calculationOverride` follows the same rule as
+    /// `getPrayerTimes(for:at:fullPrayers:calculationOverride:)`.
+    func optionalPrayers(
+        for date: Date,
+        at location: Location,
+        calculationOverride: String? = nil,
+        duha: Bool,
+        islamicMidnight: Bool,
+        lastThird: Bool
+    ) -> [Prayer] {
+        guard duha || islamicMidnight || lastThird else { return [] }
+
+        let raw = _computeRawPrayers(for: date, at: location, calculationOverride: calculationOverride)
         guard !raw.isEmpty else { return [] }
 
         guard
@@ -1560,15 +1637,11 @@ extension Settings {
             let maghrib = raw.first(where: { $0.nameTransliteration == "Maghrib" })?.time
         else { return [] }
 
-        let nextDay = Calendar.current.date(byAdding: .day, value: 1, to: date) ?? date
-        let nextRaw = _computeRawPrayers(for: nextDay)
-        let fajrNext = nextRaw.first(where: { $0.nameTransliteration == "Fajr" })?.time
-
         var result: [Prayer] = []
 
-        if showDuha {
+        if duha {
             result.append(Prayer(
-                nameArabic: "صَلَاةُ الضُّحَى",
+                nameArabic: "صَلَاةُ الضُّحَى",
                 nameTransliteration: "Duhaa",
                 nameEnglish: "Forenoon Prayer",
                 time: sunrise.addingTimeInterval(15 * 60),
@@ -1579,36 +1652,40 @@ extension Settings {
             ))
         }
 
-        
+        // Tomorrow's Fajr is only needed for the two night times, so skip that second day of
+        // astronomy when neither is on.
+        guard islamicMidnight || lastThird else { return result }
 
-        if let fajrNext {
-            let nightDuration = fajrNext.timeIntervalSince(maghrib)
+        let nextDay = Calendar.current.date(byAdding: .day, value: 1, to: date) ?? date
+        let nextRaw = _computeRawPrayers(for: nextDay, at: location, calculationOverride: calculationOverride)
+        guard let fajrNext = nextRaw.first(where: { $0.nameTransliteration == "Fajr" })?.time else { return result }
 
-            if showIslamicMidnight {
-                result.append(Prayer(
-                    nameArabic: "نِصفُ اللَّيلِ الشَّرعِيُّ",
-                    nameTransliteration: "Islamic Midnight",
-                    nameEnglish: "Islamic Middle of Night",
-                    time: maghrib.addingTimeInterval(nightDuration / 2),
-                    image: "moon.fill",
-                    rakah: "0",
-                    sunnahBefore: "0",
-                    sunnahAfter: "0"
-                ))
-            }
+        let nightDuration = fajrNext.timeIntervalSince(maghrib)
 
-            if showLastThird {
-                result.append(Prayer(
-                    nameArabic: "الثُّلُثُ الأَخِيرُ مِنَ اللَّيلِ",
-                    nameTransliteration: "Last Third",
-                    nameEnglish: "Last Third of Night",
-                    time: fajrNext.addingTimeInterval(-nightDuration / 3),
-                    image: "moon.stars.fill",
-                    rakah: "0",
-                    sunnahBefore: "0",
-                    sunnahAfter: "0"
-                ))
-            }
+        if islamicMidnight {
+            result.append(Prayer(
+                nameArabic: "نِصفُ اللَّيلِ الشَّرعِيُّ",
+                nameTransliteration: "Islamic Midnight",
+                nameEnglish: "Islamic Middle of Night",
+                time: maghrib.addingTimeInterval(nightDuration / 2),
+                image: "moon.fill",
+                rakah: "0",
+                sunnahBefore: "0",
+                sunnahAfter: "0"
+            ))
+        }
+
+        if lastThird {
+            result.append(Prayer(
+                nameArabic: "الثُّلُثُ الأَخِيرُ مِنَ اللَّيلِ",
+                nameTransliteration: "Last Third",
+                nameEnglish: "Last Third of Night",
+                time: fajrNext.addingTimeInterval(-nightDuration / 3),
+                image: "moon.stars.fill",
+                rakah: "0",
+                sunnahBefore: "0",
+                sunnahAfter: "0"
+            ))
         }
 
         return result
@@ -1641,6 +1718,44 @@ extension Settings {
         }
     }
 
+    /// Trailing-debounced `fetchPrayerTimes` for property `didSet`s.
+    ///
+    /// About sixty settings recompute prayer times from their didSet, and each recompute is the whole
+    /// pipeline: the network check, a Hijri-date decode, the travel and calculation checks, the solar
+    /// math, a `Prayers` JSON encode plus App Group write, a 60-request notification reschedule and a
+    /// reload of every widget - then a publish to every Settings observer. An offset Stepper held down
+    /// fired that once per tick. This coalesces a burst (150 ms trailing) into one fetch carrying the
+    /// strongest flags seen: any `force` forces, any `notification` reschedules, and auto-checks stay
+    /// off if any caller asked for them off (the watch-sync apply's rule). Callers that need the
+    /// result synchronously (a `completion`, the background task) keep using `fetchPrayerTimes`.
+    func fetchPrayerTimesDebounced(force: Bool = false, notification: Bool = false, runAutoChecks: Bool = true, calledFrom: StaticString = #function) {
+        // A widget or complication process seeds ~10 of these properties from the App Group and then
+        // calls `fetchPrayerTimes()` itself, exactly once; the didSet-driven fetch 150 ms later was a
+        // second full recompute per extension launch that nothing read.
+        guard Self.isAppProcess else { return }
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async {
+                self.fetchPrayerTimesDebounced(force: force, notification: notification, runAutoChecks: runAutoChecks, calledFrom: calledFrom)
+            }
+            return
+        }
+        pendingFetchFlags = (
+            pendingFetchFlags.force || force,
+            pendingFetchFlags.notification || notification,
+            pendingFetchFlags.runAutoChecks && runAutoChecks
+        )
+        pendingFetchWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingFetchWorkItem = nil
+            let flags = self.pendingFetchFlags
+            self.pendingFetchFlags = (false, false, true)
+            self.fetchPrayerTimes(force: flags.force, notification: flags.notification, runAutoChecks: flags.runAutoChecks, calledFrom: calledFrom)
+        }
+        pendingFetchWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+    }
+
     private func fetchPrayerTimesCore(force: Bool, notification: Bool, runAutoChecks: Bool, calledFrom: StaticString, completion: (() -> Void)?) {
         Self.ensureNetworkMonitorStarted()
         updateDates()
@@ -1650,8 +1765,7 @@ extension Settings {
             // Hijri-event reminders are date-based and don't need a location, so still (re)schedule
             // them even when prayer times can't be computed yet (the scheduler skips the prayer
             // parts and leaves existing prayer notifications untouched when there's no location).
-            scheduleNotifications(deferred: completion == nil)
-            completion?()
+            scheduleNotifications(deferred: true, completion: completion)
             return
         }
         
@@ -1717,10 +1831,13 @@ extension Settings {
         let emptyList  = stored?.prayers.isEmpty ?? true
         let needsFetch = force || autoStateChanged || stored == nil || staleCity || staleDate || emptyList
 
-        // A caller with a completion (notably the background-refresh task) needs the reschedule to finish
-        // before it returns/reports done, so it runs synchronously. Everyone else (the launch burst, setting
-        // toggles) defers + coalesces the heavy reschedule/widget-reload off the synchronous path.
+        // The notification reschedule is ALWAYS deferred and coalesced; a caller with a completion (the
+        // background-refresh task, the Adhan tab's post-refresh dialog) gets it run after the deferred
+        // pass instead of forcing the whole 60-request build onto the synchronous path. Only the widget
+        // reload still runs inline for a completion caller: the background task may be suspended
+        // before a deferred reload fires, and a reload is one cheap call.
         let deferWork = completion == nil
+        var reschedules = false
 
         if needsFetch {
             logger.debug("Fetching prayer times – caller: \(calledFrom)")
@@ -1738,15 +1855,21 @@ extension Settings {
                 setNotification: false
             )
             
-            scheduleNotifications(deferred: deferWork)
+            reschedules = true
             reloadWidgets(deferred: deferWork)
         } else if notification {
-            scheduleNotifications(deferred: deferWork)
-            reloadWidgets(deferred: deferWork)
+            // Notification preferences only: no widget shows them, so no reload. This branch is the
+            // didSet of ~45 properties, and reloading all 37 kinds from each one exhausted WidgetKit's
+            // daily budget in a minute of toggling (stale widgets later in the day).
+            reschedules = true
         }
         
         updateCurrentAndNextPrayer()
-        completion?()
+        if reschedules {
+            scheduleNotifications(deferred: true, completion: completion)
+        } else {
+            completion?()
+        }
     }
     
     /// Condenses the day into the traveling (Qasr) list: Fajr, Sunrise, Dhuhr+Asr, Maghrib+Isha.
@@ -1877,12 +2000,14 @@ extension Settings {
 
         switch status {
         case .authorized:
-            showNotificationAlert = false
+            // Guarded: an @AppStorage write publishes even when the value is unchanged, and this runs
+            // on every Adhan tab appear.
+            if showNotificationAlert { showNotificationAlert = false }
             return true
 
         case .provisional, .ephemeral:
             // Both allow delivering notifications, so treat them like authorized and keep scheduling.
-            showNotificationAlert = false
+            if showNotificationAlert { showNotificationAlert = false }
             return true
 
         case .denied:
@@ -1940,32 +2065,111 @@ extension Settings {
     /// synchronously (callers that must finish before reporting done - e.g. background refresh). `deferred ==
     /// true` trailing-debounces it on the main queue so the multiple `fetchPrayerTimes` calls fired during
     /// launch / setting changes collapse to one run, off the synchronous first-paint path.
-    func scheduleNotifications(deferred: Bool) {
+    /// `completion` runs after the pass, on main. With `deferred`, every completion handed in while a
+    /// pass is pending is kept and run when that one coalesced pass finishes, so the background
+    /// refresh task (which must not report done before its reschedule) and the Adhan tab's
+    /// post-refresh dialog both get the deferred, coalesced path instead of forcing a synchronous one.
+    func scheduleNotifications(deferred: Bool, completion: (() -> Void)? = nil) {
         // Only the APP schedules notifications. A widget whose cached prayers had gone stale used to reach
         // this through `fetchPrayerTimesCore` and schedule (or prune) the user's notifications from inside
         // the extension - and, via `reloadWidgets`, trigger a widget reload FROM a widget. Both were saved
         // only by the extension usually dying before the 0.35s defer fired.
-        guard Settings.isAppProcess else { return }
+        guard Settings.isAppProcess else {
+            completion?()
+            return
+        }
+        if let completion { pendingNotificationScheduleCompletions.append(completion) }
         pendingNotificationScheduleWorkItem?.cancel()
         pendingNotificationScheduleWorkItem = nil
         guard deferred else {
-            schedulePrayerTimeNotifications()
+            schedulePrayerTimeNotifications(completion: takePendingNotificationScheduleCompletions())
             return
         }
         let work = DispatchWorkItem { [weak self] in
-            self?.pendingNotificationScheduleWorkItem = nil
-            self?.schedulePrayerTimeNotifications()
+            guard let self else { return }
+            self.pendingNotificationScheduleWorkItem = nil
+            self.schedulePrayerTimeNotifications(completion: self.takePendingNotificationScheduleCompletions())
         }
         pendingNotificationScheduleWorkItem = work
         // Under the launch cover, push the (up to 60-request) scheduling pass past the reveal: it
         // used to land 0.35s after the launch `fetchPrayerTimes`, i.e. in the middle of the
         // under-cover warm the launch screen waits on. The requests are for future prayer times -
-        // a few seconds' delay changes nothing about when they fire. Off-main callers (there are
-        // none today; the compute path asserts main) keep the old 0.35s rather than trap in
-        // `assumeIsolated`.
+        // a few seconds' delay changes nothing about when they fire. A caller waiting on a
+        // completion (the background task, which has no cover to wait for) keeps the short delay.
+        // Off-main callers (there are none today; the compute path asserts main) keep the old
+        // 0.35s rather than trap in `assumeIsolated`.
         let revealed = Thread.isMainThread ? MainActor.assumeIsolated({ AppReveal.revealed }) : true
-        let delay: TimeInterval = revealed ? 0.35 : 3.0
+        let delay: TimeInterval = (revealed || !pendingNotificationScheduleCompletions.isEmpty) ? 0.35 : 3.0
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    /// The completions waiting on the next pass, taken at the pass's start so one handed in while the
+    /// pass's off-main stage runs waits for the pass after it. They run on main once the requests
+    /// are added (a background-refresh caller must not end its task before that).
+    private func takePendingNotificationScheduleCompletions() -> (() -> Void)? {
+        let completions = pendingNotificationScheduleCompletions
+        pendingNotificationScheduleCompletions.removeAll()
+        guard !completions.isEmpty else { return nil }
+        return { completions.forEach { $0() } }
+    }
+
+    /// A notification the pass wants scheduled, as plain values. The pass collects these on main (it
+    /// reads ~50 Settings properties and the main-confined prayer cache) and hands the list to
+    /// `notificationBuildQueue`, where the `UNNotificationRequest`s are built, the up-to-60 `center.add`
+    /// XPC calls go out and the stale ones are pruned. That build-and-add half was half the pass's
+    /// main-thread time (measured 4 to 10 ms of 10 to 21 on the simulator).
+    struct PendingNotificationSpec {
+        let identifier: String
+        let body: String
+        /// Bundled sound file, nil for the system default.
+        let soundFile: String?
+        let categoryIdentifier: String?
+        let nagPrayerName: String?
+        /// The absolute instant the notification is FOR (see `intendedFireDateUserInfoKey`).
+        let intendedFireDate: Date
+        let trigger: DateComponents
+    }
+
+    private static let notificationBuildQueue = DispatchQueue(label: "\(AppIdentifiers.appName).NotificationBuild", qos: .userInitiated)
+    private static let notificationPassGenerationLock = NSLock()
+    private static var notificationPassGeneration = 0
+
+    /// Bumps the pass generation and returns the new value; a build stage that finds a newer
+    /// generation when it runs has been superseded and adds nothing.
+    private static func nextNotificationPassGeneration() -> Int {
+        notificationPassGenerationLock.lock()
+        defer { notificationPassGenerationLock.unlock() }
+        notificationPassGeneration += 1
+        return notificationPassGeneration
+    }
+
+    private static func isCurrentNotificationPass(_ generation: Int) -> Bool {
+        notificationPassGenerationLock.lock()
+        defer { notificationPassGenerationLock.unlock() }
+        return generation == notificationPassGeneration
+    }
+
+    /// Builds the request for one spec. Off main by design (`notificationBuildQueue`); nothing in it
+    /// touches Settings. The one-shot schedulers below call it inline on main for their single request.
+    private static func buildNotificationRequest(from spec: PendingNotificationSpec) -> UNNotificationRequest {
+        let content = UNMutableNotificationContent()
+        content.title = AppIdentifiers.appName
+        content.body = spec.body
+        #if os(iOS)
+        content.sound = spec.soundFile.map(notificationSound(named:)) ?? .default
+        #else
+        content.sound = .default
+        #endif
+        content.userInfo[intendedFireDateUserInfoKey] = spec.intendedFireDate.timeIntervalSince1970
+        #if os(iOS)
+        if #available(iOS 15.0, *) {
+            content.interruptionLevel = .timeSensitive
+        }
+        if let category = spec.categoryIdentifier { content.categoryIdentifier = category }
+        if let name = spec.nagPrayerName { content.userInfo[nagPrayerNameUserInfoKey] = name }
+        #endif
+        let trigger = UNCalendarNotificationTrigger(dateMatching: spec.trigger, repeats: false)
+        return UNNotificationRequest(identifier: spec.identifier, content: content, trigger: trigger)
     }
 
     /// Static lookup table
@@ -1992,6 +2196,66 @@ extension Settings {
     /// planner only re-adds it when its own settings change.
     private static let ownedNotificationIDPrefixes: [String] =
         notifTable.keys.map { "\($0)-" } + ["Event-", "RefreshReminder-"]
+
+    /// The Sunnah reminders' share of the pending budget, read straight from the defaults so every
+    /// target that schedules prayers (the app, the watch, the extensions) sees the same count
+    /// without compiling the reminders module. `SunnahReminderStore` writes this key.
+    enum SunnahReminderBudget {
+        static let defaultsKey = "sunnahReminders"
+        /// The reader's own reminders and the dua/nudge switches (ReminderKinds.swift) live under
+        /// these keys; counted here because the widget target compiles this file but not that one.
+        static let customKey = "customReminders"
+        static let extraKey = "extraReminders"
+        /// Look-ahead days for the one-shot nudges, and the cap on queued dua notifications.
+        static let nudgeDays = 3
+        static let duaCap = 8
+
+        private struct Config: Decodable { var enabled: Bool? }
+        private struct CustomRow: Decodable { var enabled: Bool? }
+        private struct Extra: Decodable {
+            var duaEnabled: Bool?
+            var lastReadEnabled: Bool?
+            var streakEnabled: Bool?
+        }
+
+        /// Pending slots the reader's own reminders, the dua notifications and the nudges can hold.
+        static func extraCount(in defaults: UserDefaults = .standard) -> Int {
+            var count = 0
+            if let data = defaults.data(forKey: customKey),
+               let rows = try? JSONDecoder().decode([CustomRow].self, from: data) {
+                count += rows.filter { $0.enabled == true }.count
+            }
+            if let data = defaults.data(forKey: extraKey),
+               let extra = try? JSONDecoder().decode(Extra.self, from: data) {
+                if extra.duaEnabled == true { count += duaCap }
+                if extra.lastReadEnabled == true { count += nudgeDays }
+                if extra.streakEnabled == true { count += nudgeDays }
+            }
+            return count
+        }
+
+        /// The last total decoded from the standard defaults, kept until either reminder store saves
+        /// (`invalidateLiveCount`): a prayer pass used to decode three defaults blobs every time.
+        /// Main-confined, like the pass and the stores.
+        private static var liveEnabledCount: Int?
+
+        static func invalidateLiveCount() {
+            liveEnabledCount = nil
+        }
+
+        /// Every slot the Sunnah presets and the extra kinds together can hold.
+        static func enabledCount(in defaults: UserDefaults = .standard) -> Int {
+            let isStandard = defaults === UserDefaults.standard
+            if isStandard, let liveEnabledCount { return liveEnabledCount }
+            var count = extraCount(in: defaults)
+            if let data = defaults.data(forKey: defaultsKey),
+               let decoded = try? JSONDecoder().decode([String: Config].self, from: data) {
+                count += decoded.values.filter { $0.enabled == true }.count
+            }
+            if isStandard { liveEnabledCount = count }
+            return count
+        }
+    }
 
     /// Pre‑computes the full list of minutes‑before offsets for a prayer.
     /// The distinct minutes-before offsets a prayer should fire at. Deduplicated: a prenotification of 15
@@ -2056,7 +2320,7 @@ extension Settings {
         inDays offset: Int = 2,
         hour: Int = 12,
         minute: Int = 0
-    ) -> (request: UNNotificationRequest, date: Date)? {
+    ) -> (spec: PendingNotificationSpec, date: Date)? {
         guard let day = Calendar.current.date(byAdding: .day, value: offset, to: Date()) else { return nil }
 
         var comps = Calendar.current.dateComponents([.year, .month, .day], from: day)
@@ -2067,37 +2331,50 @@ extension Settings {
 
         // Pinned to the scheduling zone + stamped with its intended instant, same as the prayer requests.
         comps.timeZone = Calendar.current.timeZone
-        let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
-
-        let content = UNMutableNotificationContent()
-        content.title = AppIdentifiers.appName
-        content.body  = "Please open the app to refresh today’s prayer times and notifications."
-        content.sound = .default
-        content.userInfo[Self.intendedFireDateUserInfoKey] = date.timeIntervalSince1970
-        #if os(iOS)
-        if #available(iOS 15.0, *) {
-            content.interruptionLevel = .timeSensitive
-        }
-        #endif
 
         // Unique per-day id so we don’t collide across days
         let id = String(format: "RefreshReminder-%04d-%02d-%02d", comps.year ?? 0, comps.month ?? 0, comps.day ?? 0)
-
-        let req = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-        return (req, date)
+        let spec = PendingNotificationSpec(
+            identifier: id,
+            body: "Please open the app to refresh today’s prayer times and notifications.",
+            soundFile: nil,
+            categoryIdentifier: nil,
+            nagPrayerName: nil,
+            intendedFireDate: date,
+            trigger: comps
+        )
+        return (spec, date)
     }
 
 
-    func schedulePrayerTimeNotifications() {
+    /// Collects the wanted notifications on main and schedules them from `notificationBuildQueue`;
+    /// `completion` runs on main after the requests are added.
+    func schedulePrayerTimeNotifications(completion: (() -> Void)? = nil) {
+        #if DEBUG
+        let passStarted = Date()
+        var passCollected = passStarted
+        defer {
+            if RenderCounter.enabled {
+                let ms = { (a: Date, b: Date) in Int(b.timeIntervalSince(a) * 1000) }
+                NSLog("SCHEDULE PASS main %d ms (collect %d, cap %d)",
+                      ms(passStarted, Date()), ms(passStarted, passCollected), ms(passCollected, Date()))
+            }
+        }
+        #endif
         #if os(watchOS)
         // Activation still pending: standalone-vs-companion is UNKNOWN. Scheduling would double-alert a
         // paired user; wiping would strand a truly standalone watch that suspends before activation.
         // Do neither - `activationDidCompleteWith` reschedules as soon as the answer exists.
-        guard watchNotificationOwnershipResolved else { return }
+        guard watchNotificationOwnershipResolved else {
+            completion?()
+            return
+        }
         guard shouldScheduleNotificationsLocally else {
             // A companion iPhone now owns notifications - clear anything this Watch scheduled while it was
             // standalone so the two devices can't double-alert for the same prayer.
+            _ = Self.nextNotificationPassGeneration()
             UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+            completion?()
             return
         }
         #endif
@@ -2117,17 +2394,23 @@ extension Settings {
         // more than that (multiple prayers × offsets × days × nags + events), which is why adhan /
         // notification sounds previously "didn't always work" - later prayers got dropped. Collect every
         // candidate, then add them in priority order under a safe cap so the at-time adhan always survives.
-        let maxPending = 60
+        var maxPending = 60
+        #if os(iOS)
+        // Every enabled Sunnah reminder is a repeating request of its own (`SunnahReminderStore`,
+        // outside this scheduler's prune prefixes); it comes out of this budget so the whole queue
+        // stays under iOS's 64.
+        maxPending -= SunnahReminderBudget.enabledCount()
+        #endif
 
-        var adhanRequests: [(request: UNNotificationRequest, date: Date)] = []
-        var reminderRequests: [(request: UNNotificationRequest, date: Date)] = []
+        var adhanRequests: [(spec: PendingNotificationSpec, date: Date)] = []
+        var reminderRequests: [(spec: PendingNotificationSpec, date: Date)] = []
         // Days past the near window, collected separately so they can only ever spend LEFTOVER budget:
         // the near window's reminders and nag cascades always win over a day-10 adhan, but a day-10 adhan
         // beats an empty slot. This is what keeps notifications alive for a user who doesn't open the app
         // (and whose background refresh iOS never grants, e.g. after a force-quit) for a week or more -
         // the schedule used to go silent after 4 days.
-        var extendedAdhanRequests: [(request: UNNotificationRequest, date: Date)] = []
-        var extendedReminderRequests: [(request: UNNotificationRequest, date: Date)] = []
+        var extendedAdhanRequests: [(spec: PendingNotificationSpec, date: Date)] = []
+        var extendedReminderRequests: [(spec: PendingNotificationSpec, date: Date)] = []
 
         // Prayer notifications need a resolved location + computed prayer times. Hijri-event reminders and
         // refresh nags below do NOT, so they're collected regardless of location - date notifications work
@@ -2137,11 +2420,11 @@ extension Settings {
             func collectPrayer(_ prayer: Prayer, _ minutes: Int?, extended: Bool = false) {
                 guard let built = makePrayerNotificationRequest(for: prayer, preNotificationTime: minutes, city: city) else { return }
                 if built.isAdhan {
-                    extended ? extendedAdhanRequests.append((built.request, built.date))
-                             : adhanRequests.append((built.request, built.date))
+                    extended ? extendedAdhanRequests.append((built.spec, built.date))
+                             : adhanRequests.append((built.spec, built.date))
                 } else {
-                    extended ? extendedReminderRequests.append((built.request, built.date))
-                             : reminderRequests.append((built.request, built.date))
+                    extended ? extendedReminderRequests.append((built.spec, built.date))
+                             : reminderRequests.append((built.spec, built.date))
                 }
             }
 
@@ -2177,7 +2460,7 @@ extension Settings {
             }
         }
 
-        var eventRequests: [(request: UNNotificationRequest, date: Date)] = []
+        var eventRequests: [(spec: PendingNotificationSpec, date: Date)] = []
         if dateNotifications {
             for event in specialEvents {
                 if let built = makeEventNotificationRequest(for: event) { eventRequests.append(built) }
@@ -2191,10 +2474,13 @@ extension Settings {
             }
         }
 
-        var nagRequests: [(request: UNNotificationRequest, date: Date)] = []
+        var nagRequests: [(spec: PendingNotificationSpec, date: Date)] = []
         if naggingMode, let built = makeRefreshNagRequest(inDays: 1) { nagRequests.append(built) }
         if let built = makeRefreshNagRequest(inDays: 2) { nagRequests.append(built) }
         if let built = makeRefreshNagRequest(inDays: 3) { nagRequests.append(built) }
+        #if DEBUG
+        passCollected = Date()
+        #endif
 
         // Add in priority order, soonest-first within each tier, capped under iOS's 64 limit:
         //   1. near-window at-time adhan (the actual sound) - must never be dropped
@@ -2205,15 +2491,15 @@ extension Settings {
         //   6. end-of-coverage nags (slots reserved in 5) - "open the app" lands right before the
         //      schedule would actually run dry, not while adhans are still flowing
         //   7. extended-window pre-reminders - whatever is left
-        var finalRequests: [UNNotificationRequest] = []
+        var finalSpecs: [PendingNotificationSpec] = []
         var latestAdhanFireDate: Date?
         func appendCapped(
-            _ items: [(request: UNNotificationRequest, date: Date)],
+            _ items: [(spec: PendingNotificationSpec, date: Date)],
             reserving reserve: Int = 0,
             trackAdhanCoverage: Bool = false
         ) {
-            for item in items.sorted(by: { $0.date < $1.date }) where finalRequests.count < maxPending - reserve {
-                finalRequests.append(item.request)
+            for item in items.sorted(by: { $0.date < $1.date }) where finalSpecs.count < maxPending - reserve {
+                finalSpecs.append(item.spec)
                 if trackAdhanCoverage {
                     latestAdhanFireDate = max(latestAdhanFireDate ?? .distantPast, item.date)
                 }
@@ -2236,7 +2522,7 @@ extension Settings {
                 to: cal.startOfDay(for: latest)
             ).day ?? 0
             if endOffset > 3 {
-                var endNags: [(request: UNNotificationRequest, date: Date)] = []
+                var endNags: [(spec: PendingNotificationSpec, date: Date)] = []
                 for offset in [endOffset - 1, endOffset] where offset > 3 {
                     if let built = makeRefreshNagRequest(inDays: offset) { endNags.append(built) }
                 }
@@ -2246,7 +2532,7 @@ extension Settings {
         appendCapped(extendedReminderRequests)
 
         #if DEBUG
-        logger.debug("Prayer schedule: \(finalRequests.count)/\(maxPending) requests, adhan coverage through \(latestAdhanFireDate.map { $0.formatted() } ?? "none")")
+        logger.debug("Prayer schedule: \(finalSpecs.count)/\(maxPending) requests, adhan coverage through \(latestAdhanFireDate.map { $0.formatted() } ?? "none")")
         #endif
 
         // Incremental refresh instead of wiping everything first: adding a request with an existing
@@ -2254,13 +2540,32 @@ extension Settings {
         // never torn down - no brief window with zero pending, less churn, faster, and the system keeps the
         // already-scheduled fire times steady. Afterwards, prune only the now-stale ones (past days,
         // prayers turned off, items pushed out by the cap).
-        let desiredIDs = Set(finalRequests.map { $0.identifier })
-        for req in finalRequests {
-            center.add(req) { error in
-                if let error { logger.debug("Notification add failed: \(error.localizedDescription)") }
+        // The rest runs off main: building the request objects, the up-to-60 `center.add` XPC calls and
+        // the prune. `UNUserNotificationCenter` is safe to call from any thread; the specs are values;
+        // nothing below reads Settings. A pass started after this one supersedes it (generation check),
+        // so back-to-back passes cannot add in the wrong order.
+        let desiredIDs = Set(finalSpecs.map(\.identifier))
+        let generation = Self.nextNotificationPassGeneration()
+        Self.notificationBuildQueue.async {
+            #if DEBUG
+            let buildStarted = Date()
+            #endif
+            guard Self.isCurrentNotificationPass(generation) else {
+                if let completion { DispatchQueue.main.async(execute: completion) }
+                return
             }
-        }
-        center.getPendingNotificationRequests { pending in
+            for spec in finalSpecs {
+                center.add(Self.buildNotificationRequest(from: spec)) { error in
+                    if let error { logger.debug("Notification add failed: \(error.localizedDescription)") }
+                }
+            }
+            #if DEBUG
+            if RenderCounter.enabled {
+                NSLog("SCHEDULE PASS off-main build+add %d ms", Int(Date().timeIntervalSince(buildStarted) * 1000))
+            }
+            #endif
+            if let completion { DispatchQueue.main.async(execute: completion) }
+            center.getPendingNotificationRequests { pending in
             let stale = pending.map(\.identifier).filter { id in
                 guard !desiredIDs.contains(id) else { return false }
                 // Only identifiers in this scheduler's own namespaces are candidates. This is what spares
@@ -2278,10 +2583,13 @@ extension Settings {
             if !stale.isEmpty {
                 center.removePendingNotificationRequests(withIdentifiers: stale)
             }
+            }
         }
 
-        prayers?.setNotification = true
+        // No `prayers?.setNotification = true` here: nothing reads the flag, and the write re-encoded
+        // `prayersData` and published it, so every notification toggle rendered the Adhan tab twice.
         #else
+        completion?()
         return
         #endif
     }
@@ -2828,7 +3136,24 @@ extension Settings {
     /// foreground delegate compares it to "now" at delivery and silences anything that arrives late.
     static let intendedFireDateUserInfoKey = "intendedFireDate"
 
-    private func prayerNotificationSound(for prayer: Prayer, minutesBefore: Int?) -> UNNotificationSound {
+    /// One `UNNotificationSound` per filename: a scheduling pass builds a few hundred candidate
+    /// requests, and every one of them made its own sound object for one of the two or three files
+    /// in play. Touched from `notificationBuildQueue` (serial) and, for the one-shot schedulers, main;
+    /// the two never overlap in practice, and a duplicate sound object would be harmless.
+    #if os(iOS)
+    private static var notificationSoundCache: [String: UNNotificationSound] = [:]
+
+    private static func notificationSound(named filename: String) -> UNNotificationSound {
+        if let cached = notificationSoundCache[filename] { return cached }
+        let sound = UNNotificationSound(named: UNNotificationSoundName(filename))
+        notificationSoundCache[filename] = sound
+        return sound
+    }
+    #endif
+
+    /// The bundled sound file for a prayer notification, nil for the system default. A filename, not a
+    /// `UNNotificationSound`: the sound object is built with the request, off main.
+    private func prayerNotificationSoundFile(for prayer: Prayer, minutesBefore: Int?) -> String? {
         #if os(iOS)
         // Only an obligatory prayer's AT-TIME notification may play the adhan. Everything else - a
         // pre-alert, one of the non-obligatory times (Shurooq, Duhaa, Islamic Midnight, Last Third), or a
@@ -2842,26 +3167,20 @@ extension Settings {
 
         if callsToPrayer {
             let length = adhanClipLength(forPrayer: prayer.nameTransliteration)
-            if let filename = adhanNotificationSoundFilename(for: adhanNotificationSound, length: length) {
-                return UNNotificationSound(named: UNNotificationSoundName(filename))
-            }
-            return .default
+            return adhanNotificationSoundFilename(for: adhanNotificationSound, length: length)
         }
 
-        if let filename = alertToneSoundFilename(for: alertToneSound) {
-            return UNNotificationSound(named: UNNotificationSoundName(filename))
-        }
-        return .default
+        return alertToneSoundFilename(for: alertToneSound)
         #else
         // The Watch schedules its own notifications and bundles no clips at all (its 43 cafs were dead
         // weight until 2026-08-29: nothing on the watch ever played one).
-        return .default
+        return nil
         #endif
     }
 
     /// Builds an at-time / pre-notification prayer request. `isAdhan` marks the at-time notification of a
     /// main prayer (the one that carries the adhan sound) so the scheduler can prioritize it.
-    private func makePrayerNotificationRequest(for prayer: Prayer, preNotificationTime minutes: Int?, city: String) -> (request: UNNotificationRequest, date: Date, isAdhan: Bool)? {
+    private func makePrayerNotificationRequest(for prayer: Prayer, preNotificationTime minutes: Int?, city: String) -> (spec: PendingNotificationSpec, date: Date, isAdhan: Bool)? {
         let triggerTime: Date = {
             if let m = minutes, m != 0 {
                 return Calendar.current.date(byAdding: .minute, value: -m, to: prayer.time) ?? prayer.time
@@ -2871,28 +3190,18 @@ extension Settings {
 
         guard triggerTime > Date() else { return nil }
 
-        let content = UNMutableNotificationContent()
-        content.title = AppIdentifiers.appName
-        content.body = buildBody(prayer: prayer, minutesBefore: minutes, city: city)
-        content.sound = prayerNotificationSound(for: prayer, minutesBefore: minutes)
-        // The absolute instant this notification is FOR. The foreground delegate reads it and silences
-        // any delivery that arrives well past its moment - an adhan belongs to its prayer time, never to
-        // "whenever the system got around to it".
-        content.userInfo[Self.intendedFireDateUserInfoKey] = triggerTime.timeIntervalSince1970
-        #if os(iOS)
-        if #available(iOS 15.0, *) {
-            content.interruptionLevel = .timeSensitive
-        }
-
         // Nag-cascade deliveries carry the "Did you pray?" category: the notification gains a
         // "Yes, I prayed it" action, and tapping it in asks the same question in-app. Only actual
         // cascade offsets - the plain pre-notification and the at-time adhan stay plain.
+        var categoryIdentifier: String?
+        var nagPrayerName: String?
+        #if os(iOS)
         if let m = minutes, m != 0, naggingMode,
            let prefs = Self.notifTable[prayer.nameTransliteration],
            self[keyPath: prefs.nagging],
            naggingCascade(start: naggingStartOffset).contains(m) {
-            content.categoryIdentifier = Self.nagCategoryIdentifier
-            content.userInfo[Self.nagPrayerNameUserInfoKey] = prayer.nameTransliteration
+            categoryIdentifier = Self.nagCategoryIdentifier
+            nagPrayerName = prayer.nameTransliteration
         }
         #endif
 
@@ -2903,20 +3212,30 @@ extension Settings {
         // which can land anywhere in the day (the "Dhuhr/Asr adhan past Isha" report). Pinned, the
         // trigger stays the absolute instant the prayer actually occurs.
         comps.timeZone = Calendar.current.timeZone
-        let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
 
         let id = "\(prayer.nameTransliteration)-\(minutes ?? 0)-\(comps.year ?? 0)-\(comps.month ?? 0)-\(comps.day ?? 0)"
-        let req  = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
+        // `intendedFireDate` is the absolute instant this notification is FOR. The foreground delegate
+        // reads it and silences any delivery that arrives well past its moment - an adhan belongs to its
+        // prayer time, never to "whenever the system got around to it".
+        let spec = PendingNotificationSpec(
+            identifier: id,
+            body: buildBody(prayer: prayer, minutesBefore: minutes, city: city),
+            soundFile: prayerNotificationSoundFile(for: prayer, minutesBefore: minutes),
+            categoryIdentifier: categoryIdentifier,
+            nagPrayerName: nagPrayerName,
+            intendedFireDate: triggerTime,
+            trigger: comps
+        )
 
         let isAdhan = minutes == nil
             && prayer.nameTransliteration != "Shurooq"
             && !Self.optionalPrayerNames.contains(prayer.nameTransliteration)
-        return (req, triggerTime, isAdhan)
+        return (spec, triggerTime, isAdhan)
     }
 
     func scheduleNotification(for prayer: Prayer, preNotificationTime minutes: Int?, city: String, using center: UNUserNotificationCenter = .current()) {
         guard let built = makePrayerNotificationRequest(for: prayer, preNotificationTime: minutes, city: city) else { return }
-        center.add(built.request) { error in
+        center.add(Self.buildNotificationRequest(from: built.spec)) { error in
             if let error { logger.debug("Notification add failed: \(error.localizedDescription)") }
         }
     }
@@ -2924,7 +3243,7 @@ extension Settings {
     /// `dayBefore` builds the evening-before heads-up instead: it fires at 6 PM on the previous day
     /// ("X begins tomorrow"), rather than pre-dawn on the day itself.
     private func makeEventNotificationRequest(for event: (String, DateComponents, String, String),
-                                              dayBefore: Bool = false) -> (request: UNNotificationRequest, date: Date)? {
+                                              dayBefore: Bool = false) -> (spec: PendingNotificationSpec, date: Date)? {
         let (titleText, hijriComps, eventSubTitle, _) = event
 
         let gregorianCalendar = Calendar(identifier: .gregorian)
@@ -2978,39 +3297,34 @@ extension Settings {
         // requests - see `makePrayerNotificationRequest`.
         gregorianComps.timeZone = gregorianCalendar.timeZone
 
-        let content = UNMutableNotificationContent()
-        content.title = AppIdentifiers.appName
+        let body: String
         if dayBefore {
-            content.body = "\(titleText) is tomorrow: \(eventSubTitle)."
+            body = "\(titleText) is tomorrow: \(eventSubTitle)."
         } else {
-            content.body = beforeFajr
+            body = beforeFajr
                 ? "\(titleText) is today: \(eventSubTitle). Sent 30 minutes before Fajr."
                 : "\(titleText) is today: \(eventSubTitle)."
         }
-        content.sound = .default
-        content.userInfo[Self.intendedFireDateUserInfoKey] = finalDate.timeIntervalSince1970
-        #if os(iOS)
-        if #available(iOS 15.0, *) {
-            content.interruptionLevel = .timeSensitive
-        }
-        #endif
 
-        let trigger = UNCalendarNotificationTrigger(dateMatching: gregorianComps, repeats: false)
         // Stable identifier (title + date) so incremental rescheduling updates the same request in place
         // instead of churning a new UUID every refresh. The day-before variant stays under the "Event-"
         // prefix so the owned-prefix prune covers it.
         let id = "Event-\(dayBefore ? "DayBefore-" : "")\(titleText)-\(gregorianComps.year ?? 0)-\(gregorianComps.month ?? 0)-\(gregorianComps.day ?? 0)"
-        let request = UNNotificationRequest(
+        let spec = PendingNotificationSpec(
             identifier: id,
-            content: content,
-            trigger: trigger
+            body: body,
+            soundFile: nil,
+            categoryIdentifier: nil,
+            nagPrayerName: nil,
+            intendedFireDate: finalDate,
+            trigger: gregorianComps
         )
-        return (request, finalDate)
+        return (spec, finalDate)
     }
 
     func scheduleNotification(for event: (String, DateComponents, String, String), using center: UNUserNotificationCenter = .current()) {
         guard let built = makeEventNotificationRequest(for: event) else { return }
-        center.add(built.request) { error in
+        center.add(Self.buildNotificationRequest(from: built.spec)) { error in
             if let error = error {
                 logger.debug("Failed to schedule special event notification: \(error)")
             }
