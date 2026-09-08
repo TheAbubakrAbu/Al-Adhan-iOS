@@ -1,8 +1,8 @@
 # Al-Adhan | Prayer Times
 
-**Apple Ecosystem App** – Available on iPhone, iPad, Mac, and Apple Watch
+**Apple Ecosystem App**: Available on iPhone, iPad, Mac, and Apple Watch
 
-Never miss a prayer with **Al-Adhan**! Accurate prayer times, a prayer tracker, Qibla, and Traveling Mode - anywhere, anytime.
+Never miss a prayer with **Al-Adhan**! Accurate prayer times, a prayer tracker, Qibla, and Traveling Mode, anywhere, anytime.
 
 Created by **Abubakr Elmallah**, who was a **17-year-old** high school student when this app was published on the App Store on **December 31, 2023**.
 
@@ -17,15 +17,24 @@ Created by **Abubakr Elmallah**, who was a **17-year-old** high school student w
 - [**Al-Islam | Islamic Pillars**](https://github.com/TheAbubakrAbu/Al-Islam-iOS)
 - [**Al-Quran | Beginner Quran**](https://github.com/TheAbubakrAbu/Al-Quran-iOS)
 
+**Engines**: the data layers behind these apps, extracted so anyone can build on them in any language
+
+- [**Quran Tajweed Engine**](https://github.com/TheAbubakrAbu/Quran-Tajweed-Engine): 6,236 ayahs with pre-computed tajweed, qiraat, and recitations
+- [**Hadith JSON Engine**](https://github.com/TheAbubakrAbu/Hadith-JSON-Engine): 50,884 hadiths across 17 collections, repaired, graded, cited, and packed
+
+Al-Adhan is the prayer half on its own, so it ships neither corpus. If you are looking for the full
+uncompressed JSON behind the sibling apps, it is in those two repositories: the Quran sources under
+[`sources/`](https://github.com/TheAbubakrAbu/Quran-Tajweed-Engine/tree/main/sources), the hadiths under [`db/`](https://github.com/TheAbubakrAbu/Hadith-JSON-Engine/tree/main/db).
+
 ## Overview
-Al-Adhan is a simply designed and feature-rich app that helps Muslims pray on time and stay connected to their faith. Whether you are at home, traveling, or exploring new places, this app provides everything you need - from accurate prayer times and a prayer tracker to the Qibla, the Islamic calendar, on-device AI search, and essential Islamic tools. It is Al-Islam's prayer half, on its own: everything except the Quran and Hadith.
+Al-Adhan is a simply designed and feature-rich app that helps Muslims pray on time and stay connected to their faith. Whether you are at home, traveling, or exploring new places, this app provides everything you need, from accurate prayer times and a prayer tracker to the Qibla, the Islamic calendar, on-device AI search, and essential Islamic tools. It is Al-Islam's prayer half, on its own: everything except the Quran and Hadith.
 
 ## Unique Features
-- **Prayer Tracker** – Mark each prayer with a tap right on the Adhan tab, and watch your streaks, perfect days, and totals grow in History & Insights, a calendar heatmap by day, week, month, and year. Travel-aware and Friday-aware (Jumuah counts as Dhuhr, combined traveling prayers count as both), with a menstruation and postpartum pause that keeps exempt days from ever breaking a streak.
-- **Traveling Mode** – Automatically activates when traveling or can be manually enabled, and syncs between iPhone and Apple Watch. Adjust settings like prayer calculations, Hanafi madhab, and prayer offsets.
-- **Nagging Mode** – Never miss a prayer! Receive notifications at a chosen start time before each prayer, then reminders every 15 minutes, with final alerts at 10 and 5 minutes remaining. Answer "Yes, I prayed it" right from the notification to mark the prayer tracker and stop the remaining reminders.
-- **On-Device AI Search** – Search the duas, adhkar, the 99 Names of Allah, and the Arabic alphabet by meaning, not just keywords - "anxiety before an exam" finds the duas for worry even when neither word appears. Built entirely with Apple's on-device language frameworks: private, offline, and free. On devices with Apple Intelligence, **Ask AI** answers questions in a few sentences drawn only from the duas and names it cites right below the answer - and it never gives religious rulings.
-- **Siri Shortcuts** – Ask "When is Maghrib?", "What is the current prayer?", or "When is the next prayer?" - in English and Arabic.
+- **Prayer Tracker**: Mark each prayer with a tap right on the Adhan tab, and watch your streaks, perfect days, and totals grow in History & Insights, a calendar heatmap by day, week, month, and year. Travel-aware and Friday-aware (Jumuah counts as Dhuhr, combined traveling prayers count as both), with a menstruation and postpartum pause that keeps exempt days from ever breaking a streak.
+- **Traveling Mode**: Automatically activates when traveling or can be manually enabled, and syncs between iPhone and Apple Watch. Adjust settings like prayer calculations, Hanafi madhab, and prayer offsets.
+- **Nagging Mode**: Never miss a prayer! Receive notifications at a chosen start time before each prayer, then reminders every 15 minutes, with final alerts at 10 and 5 minutes remaining. Answer "Yes, I prayed it" right from the notification to mark the prayer tracker and stop the remaining reminders.
+- **On-Device AI Search**: Search the duas, adhkar, the 99 Names of Allah, and the Arabic alphabet by meaning, not just keywords: "anxiety before an exam" finds the duas for worry even when neither word appears. Built entirely with Apple's on-device language frameworks: private, offline, and free. On devices with Apple Intelligence, **Ask AI** answers questions in a few sentences drawn only from the duas and names it cites right below the answer, and it never gives religious rulings.
+- **Siri Shortcuts**: Ask "When is Maghrib?", "What is the current prayer?", or "When is the next prayer?", in English and Arabic.
 
 ## Comprehensive Prayer Times
 - Accurate prayer times for any location, calculated privately on-device, with a full calculation method catalogue browsable by region, plus your own custom angles.
@@ -34,7 +43,7 @@ Al-Adhan is a simply designed and feature-rich app that helps Muslims pray on ti
 - Qibla compass with built-in direction finder.
 - Prayer notifications with pre-alerts and your choice of adhan sounds, including short adhans and an in-app adhan that can play in silent mode.
 - Optional prayer times for Duhaa, Islamic Midnight, and the Last Third of the night, each with its own notifications.
-- Rename any prayer to the spelling you use - in the app, its notifications, the widgets, and on your Apple Watch.
+- Rename any prayer to the spelling you use, in the app, its notifications, the widgets, and on your Apple Watch.
 - A prayer calendar of the next thirteen months, browsable in the app and exportable as PDF or CSV.
 - Look up prayer times for any other city, each using the method that fits its region.
 - A Ramadan Live Activity that counts down to suhoor before Fajr and to iftar before Maghrib.
@@ -48,7 +57,7 @@ Al-Adhan is a simply designed and feature-rich app that helps Muslims pray on ti
 
 ## Essential Islamic Tools
 - Masjid Locator and Halal Food Locator for finding mosques and halal food nearby.
-- Common adhkar (remembrances) and nine dua collections - daily, morning and evening, sleep and waking, distress, travel, home and mosque, food and drink, forgiveness, and the duas of the prophets - each authenticated with its exact source, with Listen buttons that read the Arabic aloud.
+- Common adhkar (remembrances) and nine dua collections, daily, morning and evening, sleep and waking, distress, travel, home and mosque, food and drink, forgiveness, and the duas of the prophets, each authenticated with its exact source, with Listen buttons that read the Arabic aloud.
 - Tasbih counter for dhikr tracking, with preset dhikr rows and a free counter.
 - 99 Names of Allah with meanings and explanations.
 - Hijri calendar converter.
@@ -76,7 +85,7 @@ Al-Adhan is a simply designed and feature-rich app that helps Muslims pray on ti
 
 ## A Note on Intent
 
-This project is offered as *sadaqah jariyah* - a contribution for the benefit of the Muslim community and anyone building tools to pray on time and learn about Islam. If it helps you, please keep the chain of attribution intact and consider contributing improvements back.
+This project is offered as *sadaqah jariyah*: a contribution for the benefit of the Muslim community and anyone building tools to pray on time and learn about Islam. If it helps you, please keep the chain of attribution intact and consider contributing improvements back.
 
 ## License
 
