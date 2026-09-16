@@ -132,7 +132,21 @@ private struct MainTabView: View {
     /// True while a launch/splash screen still covers the tabs (drives the under-cover warm below).
     let isCovered: Bool
 
-    private enum AppTab: Hashable { case adhan, islam, settings }
+    private enum AppTab: String, Hashable { case adhan, islam, settings }
+
+    #if DEBUG
+    /// Headless tab switching for verification runs: `Settings`' `-settingsProbe` posts this with the
+    /// tab's raw value ("adhan") so a probe can change a setting on one tab and then LOOK at another -
+    /// the only way to reproduce cross-tab staleness without tap tooling.
+    ///
+    /// `Settings.swift` syncs down from Al-Islam and has always POSTED this; the observer lives in the
+    /// app entry point, which is a per-app variant the sync keeps as ours, so nothing was listening
+    /// here and every `tab=` step was a silent no-op. Same shape as the `-auditPacks` hook.
+    ///
+    /// A `tab=quran` or `tab=hadith` step names a tab this app does not ship, so `AppTab(rawValue:)`
+    /// returns nil and the step is ignored rather than mis-selecting one.
+    static let debugSwitchTabNotification = Notification.Name("AlIslamDebugSwitchTab")
+    #endif
 
     // We land the user on Adhan, so Adhan is the initial tab and builds first. The Quran tab is realized during
     // `warmUnderCover()` - briefly selected so `TabView` builds and RETAINS its heavy view tree, then we settle
@@ -144,6 +158,13 @@ private struct MainTabView: View {
 
     var body: some View {
         tabs
+            #if DEBUG
+            .onReceive(NotificationCenter.default.publisher(for: Self.debugSwitchTabNotification)) { note in
+                if let raw = note.object as? String, let tab = AppTab(rawValue: raw) {
+                    selectedTab = tab
+                }
+            }
+            #endif
             // Tapping a nagging notification lands here with the question pending - asked at the TAB
             // level so it appears whichever tab the app reopens on.
             .confirmationDialog(

@@ -46,6 +46,10 @@ enum AppLifecycle {
         let settings = Settings.shared
 
         if phase == .active {
+            // An adhan whose moment passed in the last few minutes while the app was CLOSED: play it
+            // now, in full and through Silent Mode if that is on. Before `reschedule()`, which only
+            // ever looks forward - this is the one path that looks back (Abu, 2026-09-14).
+            ForegroundAdhanPlayer.shared.playMissedAdhan()
             // Play the adhan in-app on time while open (the scheduled notification covers the closed
             // case and can be delivered late by the system, especially on Mac/Catalyst).
             ForegroundAdhanPlayer.shared.reschedule()

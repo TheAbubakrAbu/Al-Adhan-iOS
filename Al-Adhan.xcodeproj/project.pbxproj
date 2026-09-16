@@ -7,6 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E208568BCE7E4BB6A310D905 /* DailyHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70DF35ED3D644053917A7020 /* DailyHub.swift */; };
+		6FFF2D8456F94A1A9AF4473C /* QiraatIsnad.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52BE7AC8CCF245BEA61556E2 /* QiraatIsnad.swift */; };
+		41BB3BCCEABF4B3CA8184034 /* SkyScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BF3A934768D4D26AEF762C7 /* SkyScene.swift */; };
+		1D99E0B4CC86448AA3CBA490 /* SkyScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BF3A934768D4D26AEF762C7 /* SkyScene.swift */; };
+		53810EE7C87743D4A4262D6F /* SettingsSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3C3DD41C7D94E0183BA976F /* SettingsSearch.swift */; };
+		F37BCF1E56044AA1B4A288B3 /* SettingsSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3C3DD41C7D94E0183BA976F /* SettingsSearch.swift */; };
 		DE7FDEE7E0D54A44B918ED6C /* ProfanityFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB19711E19C9447F9F0C45E5 /* ProfanityFilter.swift */; };
 		8495F21923F641D3AF4B4E04 /* ProfanityFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB19711E19C9447F9F0C45E5 /* ProfanityFilter.swift */; };
 		2711A2394C8B4FCA9AA6D9DC /* FlowLayoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5AC64B6BA494A37BDD9AC1A /* FlowLayoutView.swift */; };
@@ -391,6 +397,10 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		70DF35ED3D644053917A7020 /* DailyHub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyHub.swift; sourceTree = "<group>"; };
+		52BE7AC8CCF245BEA61556E2 /* QiraatIsnad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QiraatIsnad.swift; sourceTree = "<group>"; };
+		5BF3A934768D4D26AEF762C7 /* SkyScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkyScene.swift; sourceTree = "<group>"; };
+		B3C3DD41C7D94E0183BA976F /* SettingsSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSearch.swift; sourceTree = "<group>"; };
 		FB19711E19C9447F9F0C45E5 /* ProfanityFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfanityFilter.swift; sourceTree = "<group>"; };
 		C5AC64B6BA494A37BDD9AC1A /* FlowLayoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowLayoutView.swift; sourceTree = "<group>"; };
 		4E691031FF91438FB277F6B4 /* SolidPack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SolidPack.swift; sourceTree = "<group>"; };
@@ -779,6 +789,7 @@
 		72728CBE2B3D1A9600FAA3B3 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				B3C3DD41C7D94E0183BA976F /* SettingsSearch.swift */,
 				3124D414068E44FB9362AF71 /* ProfileDashboard.swift */,
 				5D1950F9C5BC48ED9E0BDE86 /* DailyRollover.swift */,
 				51D19984994142AFAB672BD8 /* ActivityLog.swift */,
@@ -817,6 +828,7 @@
 		7283C86A301EC74C00AED881 /* Adhan */ = {
 			isa = PBXGroup;
 			children = (
+				5BF3A934768D4D26AEF762C7 /* SkyScene.swift */,
 				66A38C8D8F4D4EC3BC58BD11 /* WidgetGalleryView.swift */,
 				EA69481D09E343CEBD79D876 /* AdhanClipStore.swift */,
 				7283C853301EC74C00AED881 /* AdhanStructs.swift */,
@@ -849,6 +861,8 @@
 		7283C87C301EC74C00AED881 /* Islam */ = {
 			isa = PBXGroup;
 			children = (
+				70DF35ED3D644053917A7020 /* DailyHub.swift */,
+				52BE7AC8CCF245BEA61556E2 /* QiraatIsnad.swift */,
 				26CF49CBE4F048BB8C2B1864 /* NamesDepth.swift */,
 				65D3000684FD4A8A98137AA7 /* IslamSearch.swift */,
 				C70004F9F65948B18EC52BB5 /* NamesOfAllahFallback.swift */,
@@ -1159,6 +1173,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E208568BCE7E4BB6A310D905 /* DailyHub.swift in Sources */,
+				6FFF2D8456F94A1A9AF4473C /* QiraatIsnad.swift in Sources */,
+				1D99E0B4CC86448AA3CBA490 /* SkyScene.swift in Sources */,
+				F37BCF1E56044AA1B4A288B3 /* SettingsSearch.swift in Sources */,
 				8495F21923F641D3AF4B4E04 /* ProfanityFilter.swift in Sources */,
 				27C8AC78210E431289107503 /* FlowLayoutView.swift in Sources */,
 				DEB8C14F3AA545418D2DDB5D /* SolidPack.swift in Sources */,
@@ -1276,6 +1294,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				53810EE7C87743D4A4262D6F /* SettingsSearch.swift in Sources */,
 				DE7FDEE7E0D54A44B918ED6C /* ProfanityFilter.swift in Sources */,
 				2711A2394C8B4FCA9AA6D9DC /* FlowLayoutView.swift in Sources */,
 				621CBADA87824CDE85505ABE /* SolidPack.swift in Sources */,
@@ -1367,6 +1386,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				41BB3BCCEABF4B3CA8184034 /* SkyScene.swift in Sources */,
 				131D96BC96A44CBEA86704BF /* WidgetChrome.swift in Sources */,
 				8BBAD414E5CE43C89C5D3E15 /* DateLockWidgets.swift in Sources */,
 				78CD8888A0644718BE5B5A44 /* DailyRollover.swift in Sources */,
@@ -1599,7 +1619,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.6.4;
+				MARKETING_VERSION = 2.6.5;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1635,7 +1655,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.6.4;
+				MARKETING_VERSION = 2.6.5;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1666,7 +1686,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.6.4;
+				MARKETING_VERSION = 2.6.5;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times.watchkitapp";
 				PRODUCT_NAME = "Al-Adhan";
 				SDKROOT = watchos;
@@ -1700,7 +1720,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.6.4;
+				MARKETING_VERSION = 2.6.5;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times.watchkitapp";
 				PRODUCT_NAME = "Al-Adhan";
 				SDKROOT = watchos;
@@ -1730,7 +1750,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 2.6.4;
+				MARKETING_VERSION = 2.6.5;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times.Widget";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1758,7 +1778,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 2.6.4;
+				MARKETING_VERSION = 2.6.5;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times.Widget";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1786,7 +1806,7 @@
 					"@executable_path/../../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MARKETING_VERSION = 2.6.4;
+				MARKETING_VERSION = 2.6.5;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times.watchkitapp.Complication1";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
@@ -1816,7 +1836,7 @@
 					"@executable_path/../../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MARKETING_VERSION = 2.6.4;
+				MARKETING_VERSION = 2.6.5;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.Quran.Elmallah.Prayer-Times.watchkitapp.Complication1";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;

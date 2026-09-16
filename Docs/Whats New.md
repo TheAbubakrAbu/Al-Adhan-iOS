@@ -1,3 +1,40 @@
+# Version 2.6.5
+
+A skyline under the sun's path, everything of the day on one screen, and a Qibla compass that turns wherever you see it.
+
+The sky:
+- Pyramids to the west and a mosque to the east stand on the horizon of the countdown card, and in the Solar Arc widgets.
+- The sun rides the arc by day and sinks behind the mosque at sunset; through the night the moon takes its place on the path, at its true phase.
+- The skyline turns pale against a night sky and dark against a day one, easing between the two instead of flipping.
+
+Today:
+- One screen gathers the Dua, the Name and the Reminder of the day, each opening where it lives.
+- Every daily card carries a small Today door, so liking one of them is how you find the rest.
+- The Reminder of the Day now shows the app's own pick of that kind, so the card and the screen never disagree.
+
+Settings:
+- Every settings page has its own search bar, and a result opens the exact screen the setting is on rather than the page's root.
+- The settings rows wear a colour per area, the way iOS Settings does.
+
+Wallpapers:
+- Two new wallpapers: OC Ummah's desert night, and a Free Palestine poster with the Dome of the Rock.
+
+Qibla:
+- The needle turns at every size, including the small compass in the location row and in Low Power Mode.
+- When there is no heading yet, it says so instead of pointing straight up as though you were already facing the Kaaba.
+- Opening the compass no longer cancels the location search it depends on, which could leave it stuck with no fix.
+- The large compass turns smoothly instead of stepping, and offers iOS's own calibration when the magnetometer needs it.
+
+Widgets:
+- The sky widgets and the watch complication wear the same night sky the app's card does, stars included.
+- While traveling, the sky turns at the real Isha instead of holding sunset's colors until dawn.
+- The widget gallery paints the sky exactly as the placed widget will, so a traveler previews the right night.
+
+iPad and Mac:
+- Leaving the app and coming back no longer re-seats the navigation: the article you had open, the section you were in, and your place in it are all still there.
+
+Bug fixes and optimizations throughout.
+
 # Version 2.6.4
 
 A daily reminder card, a journal, the 99 Names in depth, the miracles of the Quran, and a gallery that shows every widget before you place it.
