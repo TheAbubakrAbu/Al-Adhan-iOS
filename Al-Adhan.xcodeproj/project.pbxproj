@@ -7,6 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		075AB37164BA45CF8B19ED53 /* HadithQuotes.json.deflate in Resources */ = {isa = PBXBuildFile; fileRef = 49ED9785078F4F5FB292A2B5 /* HadithQuotes.json.deflate */; };
+		D194F8A5D4A642939BF67C86 /* QuranQuotes.json.deflate in Resources */ = {isa = PBXBuildFile; fileRef = 6336BEDECF8E4900A45A1542 /* QuranQuotes.json.deflate */; };
+		4426C761282946FE9348EBEA /* QuranQuotes.json.deflate in Resources */ = {isa = PBXBuildFile; fileRef = 6336BEDECF8E4900A45A1542 /* QuranQuotes.json.deflate */; };
+		55EDBB6BA9FA45B9B89C71ED /* HadithQuotes.json.deflate in Resources */ = {isa = PBXBuildFile; fileRef = 49ED9785078F4F5FB292A2B5 /* HadithQuotes.json.deflate */; };
+		EC75C5B226C14C34B879933A /* HadithQuote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32070753079B42B8AE89CEF9 /* HadithQuote.swift */; };
+		15C11DECF3C142D09F682E4F /* HadithQuote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32070753079B42B8AE89CEF9 /* HadithQuote.swift */; };
+		CC4F924ACA0A41ADB86DBEC9 /* QuranQuoteSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8807C7E4AA14B1C861092CE /* QuranQuoteSource.swift */; };
+		2AC26B1C4FED4B32A958879C /* QuranQuoteSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8807C7E4AA14B1C861092CE /* QuranQuoteSource.swift */; };
+		808D6E6E0ECC4B68A2EDCCBC /* QuranQuote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4159F10DB5F248BD8C3E2FE6 /* QuranQuote.swift */; };
+		F644365DBB024036ACD9AEF7 /* QuranQuote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4159F10DB5F248BD8C3E2FE6 /* QuranQuote.swift */; };
 		E208568BCE7E4BB6A310D905 /* DailyHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70DF35ED3D644053917A7020 /* DailyHub.swift */; };
 		6FFF2D8456F94A1A9AF4473C /* QiraatIsnad.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52BE7AC8CCF245BEA61556E2 /* QiraatIsnad.swift */; };
 		41BB3BCCEABF4B3CA8184034 /* SkyScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BF3A934768D4D26AEF762C7 /* SkyScene.swift */; };
@@ -397,6 +407,11 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		49ED9785078F4F5FB292A2B5 /* HadithQuotes.json.deflate */ = {isa = PBXFileReference; lastKnownFileType = file; path = HadithQuotes.json.deflate; sourceTree = "<group>"; };
+		6336BEDECF8E4900A45A1542 /* QuranQuotes.json.deflate */ = {isa = PBXFileReference; lastKnownFileType = file; path = QuranQuotes.json.deflate; sourceTree = "<group>"; };
+		32070753079B42B8AE89CEF9 /* HadithQuote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HadithQuote.swift; sourceTree = "<group>"; };
+		F8807C7E4AA14B1C861092CE /* QuranQuoteSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuranQuoteSource.swift; sourceTree = "<group>"; };
+		4159F10DB5F248BD8C3E2FE6 /* QuranQuote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuranQuote.swift; sourceTree = "<group>"; };
 		70DF35ED3D644053917A7020 /* DailyHub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyHub.swift; sourceTree = "<group>"; };
 		52BE7AC8CCF245BEA61556E2 /* QiraatIsnad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QiraatIsnad.swift; sourceTree = "<group>"; };
 		5BF3A934768D4D26AEF762C7 /* SkyScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkyScene.swift; sourceTree = "<group>"; };
@@ -612,6 +627,8 @@
 		CFC4D91FB5A84BBF9802A493 /* Islam */ = {
 			isa = PBXGroup;
 			children = (
+				49ED9785078F4F5FB292A2B5 /* HadithQuotes.json.deflate */,
+				6336BEDECF8E4900A45A1542 /* QuranQuotes.json.deflate */,
 				1EA69CF75E6046A6A160419C /* NamesDetails.json.xz */,
 				ADC9EF18FC6F4BFC805B9F92 /* HisnDuas.json.xz */,
 				6DEBAB7EA0E04BB588F88F99 /* DailyReminders.json.xz */,
@@ -861,6 +878,9 @@
 		7283C87C301EC74C00AED881 /* Islam */ = {
 			isa = PBXGroup;
 			children = (
+				32070753079B42B8AE89CEF9 /* HadithQuote.swift */,
+				F8807C7E4AA14B1C861092CE /* QuranQuoteSource.swift */,
+				4159F10DB5F248BD8C3E2FE6 /* QuranQuote.swift */,
 				70DF35ED3D644053917A7020 /* DailyHub.swift */,
 				52BE7AC8CCF245BEA61556E2 /* QiraatIsnad.swift */,
 				26CF49CBE4F048BB8C2B1864 /* NamesDepth.swift */,
@@ -1067,6 +1087,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				075AB37164BA45CF8B19ED53 /* HadithQuotes.json.deflate in Resources */,
+				D194F8A5D4A642939BF67C86 /* QuranQuotes.json.deflate in Resources */,
 				46C9E0A3E6D44F6B99973E5B /* NamesDetails.json.xz in Resources */,
 				DE08F21AD275429882093ECB /* HisnDuas.json.xz in Resources */,
 				5033562F91D94964919D6E65 /* DailyReminders.json.xz in Resources */,
@@ -1118,6 +1140,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				55EDBB6BA9FA45B9B89C71ED /* HadithQuotes.json.deflate in Resources */,
+				4426C761282946FE9348EBEA /* QuranQuotes.json.deflate in Resources */,
 				418EDBCAB0614458ADDEE32B /* Images.xcassets in Resources */,
 				295D7250AA5D4843A5978F7C /* takbir.caf in Resources */,
 				FA68728D808745BD816775A9 /* takbir-short.caf in Resources */,
@@ -1173,6 +1197,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				15C11DECF3C142D09F682E4F /* HadithQuote.swift in Sources */,
+				2AC26B1C4FED4B32A958879C /* QuranQuoteSource.swift in Sources */,
+				F644365DBB024036ACD9AEF7 /* QuranQuote.swift in Sources */,
 				E208568BCE7E4BB6A310D905 /* DailyHub.swift in Sources */,
 				6FFF2D8456F94A1A9AF4473C /* QiraatIsnad.swift in Sources */,
 				1D99E0B4CC86448AA3CBA490 /* SkyScene.swift in Sources */,
@@ -1294,6 +1321,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EC75C5B226C14C34B879933A /* HadithQuote.swift in Sources */,
+				CC4F924ACA0A41ADB86DBEC9 /* QuranQuoteSource.swift in Sources */,
+				808D6E6E0ECC4B68A2EDCCBC /* QuranQuote.swift in Sources */,
 				53810EE7C87743D4A4262D6F /* SettingsSearch.swift in Sources */,
 				DE7FDEE7E0D54A44B918ED6C /* ProfanityFilter.swift in Sources */,
 				2711A2394C8B4FCA9AA6D9DC /* FlowLayoutView.swift in Sources */,
