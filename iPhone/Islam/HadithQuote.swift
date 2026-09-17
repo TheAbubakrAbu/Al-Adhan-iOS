@@ -74,8 +74,12 @@ enum WordRange {
 /// and the same Dua screen as Al-Islam but bundles no hadith shelf on ANY platform (there is no
 /// `HadithPack` here, so unlike Al-Islam there is no .hpk branch): `HadithQuotes.json.deflate`, the
 /// referenced rows alone, cut from the shelf at build time by Al-Islam's
-/// Scripts/build_hadith_quotes_pack.py and gated byte-identical to a fresh build by its
-/// Scripts/verify_islam_corpus.py. Phone and Watch both read it.
+/// Scripts/build_sibling_quote_packs.py and gated byte-identical to a fresh build by that
+/// script's `--check`. Phone and Watch both read it.
+///
+/// Not build_hadith_quotes_pack.py, which cuts the rows the WATCH needs: the Watch does not compile
+/// DailyReminders.swift, so its pack carries no reminder rows. This app does compile it, so this
+/// pack is the union of the article/Dua links and the reminder links (548 rows against 501).
 enum HadithQuoteSource {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var rows: [String: HadithQuoteText]?

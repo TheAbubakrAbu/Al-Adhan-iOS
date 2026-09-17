@@ -3,7 +3,7 @@ import Foundation
 /// Where an article's `ScriptureQuote(quran:)` gets its words in this app, which compiles the same
 /// article files and the same Dua screen as Al-Islam but ships no Quran: `QuranQuotes.json.deflate`,
 /// the cited ayahs alone, cut from Al-Islam's own Quran at build time by
-/// Scripts/build_quran_quotes_pack.py and gated byte-identical to a fresh build by that script's
+/// Scripts/build_sibling_quote_packs.py and gated byte-identical to a fresh build by that script's
 /// `--check`. Al-Islam reads the same references straight out of `QuranData`.
 ///
 /// Saheeh International throughout, which is the translation this app's articles name as their
