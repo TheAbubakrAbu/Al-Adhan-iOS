@@ -297,10 +297,8 @@ struct IslamView: View {
         /// The section the resource is listed under (`ResourceGroup`).
         var group: ResourceGroup {
             switch self {
-            // LEARN in the order the resources are taken up: the letters, the rules as a reference,
-            // then the course that teaches them, with the journal as the banner UNDER them (Abu,
-            // 2026-10-04: "islamic journal as the full row for learn ... and then tajweed foundations
-            // and tajweed course"). Writing down what you studied belongs with the studying.
+            // Al-Adhan's Learn grid has exactly three available tiles: Arabic Alphabet, Tajweed
+            // Foundations, and Islamic Journal. Al-Adhan does not ship the Tajweed Course.
             case .arabicAlphabet, .tajweedFoundations, .tajweedCourse, .journal: return .learn
             case .pillarsAndBasics, .howToGuides, .namesOfAllah: return .faith
             case .commonAdhkar, .commonDuas, .tasbihCounter: return .remembrance
@@ -320,10 +318,8 @@ struct IslamView: View {
         }
 
         /// The resources the grid draws as full-width banners under its tiles, in this order.
-        /// LEARN's banner is the JOURNAL, not the course (Abu, 2026-10-04): that leaves the three
-        /// study resources as a full row of tiles above it, and the journal - the one you WRITE in
-        /// rather than read - reads as the thing you do with what they taught you.
-        static let bannerResources: [IslamDestination] = [.journal, .provingIslam, .askAI]
+        /// Al-Adhan's journal is a Learn tile. Only Proving Islam and Ask AI are full-width banners.
+        static let bannerResources: [IslamDestination] = [.provingIslam, .askAI]
 
         /// Every resource this device can show: all of them, minus Ask AI where Apple Intelligence
         /// can't run it (a row that opens onto "not available here" is worse than no row), and minus the
