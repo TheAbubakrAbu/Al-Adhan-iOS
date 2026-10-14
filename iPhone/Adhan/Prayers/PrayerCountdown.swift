@@ -1,0 +1,895 @@
+import SwiftUI
+
+struct PrayerCountdown: View {
+    /// Where the countdown is being drawn. `.section` is the standalone list card; `.embedded` is inside
+    /// `SkyView`'s gradient, which supplies its own heading and background.
+    enum Presentation {
+        /// The standalone list card, used when the sky is switched off.
+        case section
+        /// Only the progress bar and "Time Left" row, drawn inside `SkyView`, which paints the prayer columns
+        /// itself. `PrayerCountdown` still owns the adaptive refresh timer that drives `progress`.
+        case skyFooter
+    }
+
+    var presentation: Presentation = .section
+    /// Snapshotted so `==` sees the info-disclosure toggle: the body branches on `showPrayerInfo`
+    /// (the extra prayer rows), and the tap that flips it must not be swallowed by the equality gate.
+    var showPrayerInfoKey: Bool = Settings.shared.showPrayerInfo
+
+    @ObservedObject private var settings = Settings.shared
+    /// Prayer times and the location publish from `LiveState`, not `Settings` (see its comment).
+    @ObservedObject private var live = LiveState.shared
+    @Environment(\.scenePhase) private var scenePhase
+
+    @State private var progress: Double = 0
+    @State private var updateTimer: Timer?
+    /// The "TIME LEFT" caption's size under Dynamic Type (see `bigTimeLeft`).
+    @ScaledMetric(relativeTo: .caption2) private var scaledCaption: CGFloat = PrayerCountdown.captionSize
+
+    /// The progress bar's refresh. The visible countdown is a self-updating `Text(style: .timer)`, so
+    /// nothing here needs to tick faster than the bar can visibly move; the current/next flip is
+    /// scheduled at the boundary itself (`nextRefreshInterval`). The old 60/15/5/1 s ladder re-merged
+    /// and re-sorted three days of prayers once a second for the last half minute before every adhan.
+    private let progressTickInterval: TimeInterval = 60
+
+    /// The gap between the countdown digits and the progress bar under them, on both cards. The digits'
+    /// line height already leaves air beneath the glyphs, so the stack's 10 pt read as twice that
+    /// (Abu, 2026-09-07: "the padding between the line and time left is too big").
+    private static let digitsToBarSpacing: CGFloat = 3
+
+    private var currentPrayer: Prayer? { live.currentPrayer }
+    private var nextPrayer: Prayer? { live.nextPrayer }
+
+    var body: some View {
+        let _ = RenderCounter.hit("PrayerCountdown")
+        let _ = ChangePrinter.hit(Self.self)
+        if let currentPrayer, let nextPrayer {
+            countdownContent(current: currentPrayer, next: nextPrayer)
+        }
+    }
+
+    private func countdownContent(current: Prayer, next: Prayer) -> some View {
+        countdownSection(current: current, next: next)
+            .onAppear {
+                refreshProgressAndPrayerState()
+                startTimer()
+            }
+            .onDisappear {
+                stopTimer()
+            }
+            .onChange(of: scenePhase) { phase in
+                handleScenePhaseChange(phase)
+            }
+            .onChange(of: live.prayers) { _ in
+                refreshProgressAndPrayerState()
+                startTimer()
+            }
+            .onChange(of: currentPrayer) { _ in
+                updateProgress()
+                startTimer()
+            }
+            .onChange(of: nextPrayer) { _ in
+                updateProgress()
+                startTimer()
+            }
+    }
+
+    @ViewBuilder
+    private func countdownSection(current: Prayer, next: Prayer) -> some View {
+        switch presentation {
+        case .section:
+            #if os(watchOS)
+            Section(header: Text("UP NEXT")) {
+                watchBody(current: current, next: next)
+            }
+            #else
+            Section(header: sectionHeader) {
+                tappableBody(current: current, next: next)
+            }
+            #endif
+        case .skyFooter:
+            // No `Section` - the sky card already is one, and a nested section inside a list row breaks it.
+            // The big centred countdown over the bar; the card draws the moon and "until X" footer itself.
+            VStack(spacing: Self.digitsToBarSpacing) {
+                bigTimeLeft(next: next)
+                    .skyLegibility()
+                countdownProgress(next: next)
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.25)
+            // Stated outright rather than left to `.primary`. The sky card forces a dark color scheme, but a
+            // `Text(_, style: .timer)` takes its color from the UIKit trait collection instead, so under a
+            // light system appearance the countdown rendered black on the dark card.
+            .foregroundColor(.white)
+        }
+    }
+
+    private func tappableBody(current: Prayer, next: Prayer) -> some View {
+        countdownBody(current: current, next: next)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                settings.hapticFeedback()
+                withAnimation { settings.showPrayerInfo.toggle() }
+            }
+    }
+
+    /// The plain card (sky off), in the sky card's grammar: the two prayer columns, the countdown big
+    /// and centred, the bar, then the moon and "until X" on one footer line (Abu, 2026-09-04, from the
+    /// sky mock-up: "the time left is big in the middle and whatnot").
+    private func countdownBody(current: Prayer, next: Prayer) -> some View {
+        VStack(spacing: 10) {
+            prayerSummary(current: current, next: next)
+            VStack(spacing: Self.digitsToBarSpacing) {
+                bigTimeLeft(next: next)
+                countdownProgress(next: next)
+            }
+            footerRow(next: next)
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.25)
+        .padding(.vertical, 4)
+    }
+
+    private var sectionHeader: some View {
+        HStack {
+            SectionIconHeader("CURRENT", icon: "timer")
+
+            Spacer()
+
+            Text("UPCOMING")
+        }
+    }
+
+    #if os(watchOS)
+    /// The watch gets its own shape. The phone's two-column "CURRENT | UPCOMING" card, with a full time under
+    /// each side, is far too much text for a 40mm screen - you end up reading it rather than glancing at it.
+    /// Here the time remaining is the biggest thing on the card, the next prayer names itself right above, and
+    /// the prayer you're currently in is demoted to one quiet line underneath.
+    private func watchBody(current: Prayer, next: Prayer) -> some View {
+        VStack(spacing: 3) {
+            HStack(spacing: 4) {
+                Image(systemName: next.image)
+                    .font(.caption2)
+
+                Text(countdownDisplayName(for: next))
+                    .font(.caption.weight(.semibold))
+
+                Spacer(minLength: 2)
+
+                Text(next.time, style: .time)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .foregroundColor(next.nameTransliteration == "Shurooq" ? .primary : settings.accentColor.accent2)
+
+            Text(next.time, style: .timer)
+                .font(.title2.monospacedDigit().weight(.bold))
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            countdownProgress(next: next)
+
+            HStack(spacing: 4) {
+                Text("Now")
+                    .foregroundStyle(.tertiary)
+
+                Text(countdownDisplayName(for: current))
+                    .foregroundColor(current.nameTransliteration == "Shurooq" ? .primary : settings.accentColor.accent1)
+
+                Spacer(minLength: 2)
+
+                Text(current.time, style: .time)
+                    .foregroundStyle(.secondary)
+            }
+            .font(.caption2)
+
+            // A one-line sky: where the sun is between sunrise and sunset, and tonight's moon. The iPhone's
+            // full SkyView has no business on a wrist, but these two facts survive the shrink.
+            WatchSkyStrip()
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.5)
+    }
+    #endif
+
+    @ViewBuilder
+    private func prayerSummary(current: Prayer, next: Prayer) -> some View {
+        VStack {
+            summaryRow(current: current, next: next)
+            
+            if settings.showPrayerInfo {
+                prayerInfoRow(current: current, next: next)
+            }
+        }
+        .padding(.bottom, -2)
+    }
+
+    private func summaryRow(current: Prayer, next: Prayer) -> some View {
+        HStack(alignment: .top) {
+            CurrentPrayerCell(prayer: current)
+            summaryDivider
+            UpcomingPrayerCell(prayer: next)
+        }
+    }
+
+    private var summaryDivider: some View {
+        Divider()
+            .background(settings.accentColor.color)
+            .padding(.horizontal, 2)
+    }
+
+    private func prayerInfoRow(current: Prayer, next: Prayer) -> some View {
+        VStack {
+            Divider()
+                .background(settings.accentColor.color)
+
+            HStack(alignment: .top) {
+                CurrentPrayerInfoView(prayer: current)
+                UpcomingPrayerInfoView(prayer: next)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func countdownProgress(next: Prayer) -> some View {
+        Group {
+            // A solid accent keeps the stock `ProgressView` - identical to what shipped. Only a real
+            // two-color accent swaps in the custom bar, which is the only way to fill with a gradient.
+            if settings.accentColor.isGradient {
+                AccentGradientBar(progress: progress)
+            } else {
+                ProgressView(value: progress)
+                    .tint(settings.accentColor.color)
+            }
+        }
+        .conditionalGlassEffect()
+        // VoiceOver read a bare "36%".
+        .accessibilityLabel("Progress until \(countdownDisplayName(for: next))")
+        // Symmetric, and only a point: this pads BOTH sides of the bar, and the stack it sits in
+        // already supplies the real separation. Paired with dropping `timeLeftRow`'s `.padding(.top)`
+        // below - that extra top padding was the whole reason the bar sat nearer the row above it
+        // than the caption beneath it.
+        .padding(.vertical, 1)
+        #if os(watchOS)
+        .padding(.top, 4)
+        #endif
+    }
+
+    /// The countdown as the card's centrepiece: a small "TIME LEFT" caption over big rounded digits,
+    /// hours and minutes large and the seconds a step smaller. Inherits the card's foreground (white on
+    /// the sky, primary on the plain card); the caption is the secondary shade of that. The caption is
+    /// 11 pt, `caption2`'s size and the platform's minimum (it was one step below until 2026-09-26), and
+    /// the digits 26 pt (36, then 30): Abu found them "a little too big" on 2026-09-05 and "still a
+    /// little too big" on 2026-09-07.
+    private func bigTimeLeft(next: Prayer) -> some View {
+        VStack(spacing: Self.bigTimeLeftSpacing) {
+            HStack(spacing: 4) {
+                Image(systemName: "hourglass")
+                Text("TIME LEFT")
+            }
+            // 11 pt at the default size and never less; grows with Dynamic Type above it, like the
+            // digits (see `CountdownDigits.scaledDigits`, the same reasoning).
+            .font(.system(size: max(Self.captionSize, scaledCaption), weight: .semibold))
+            // On the sky card the caption stands on the open sky, where the system's secondary white
+            // measured 1.73:1 against a midday blue; there it is white and haloed (`skyLegibility`).
+            .foregroundStyle(presentation == .skyFooter ? AnyShapeStyle(Color.white) : AnyShapeStyle(.secondary))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Time left until \(countdownDisplayName(for: next))")
+
+            CountdownDigits(target: next.time)
+                // The skyline's GROUND (the horizon line, the pyramids and the mosque, the ground
+                // band) runs between the caption and these digits: "TIME LEFT" sits in the sky
+                // between the two structures, and the digits and the bar stand under the ground.
+                // Abu, 2026-09-21: "between Time Left and the countdown, just the ground, not the
+                // graph"; it stood on the progress bar for a day and came back on 2026-09-22
+                // ("bring back the ground between time left and the countdown"). Only the drawn
+                // ground: the solar graph keeps the whole block's top, below.
+                .reportingSkyGroundLine(offset: Self.groundLineOffset)
+        }
+        .frame(maxWidth: .infinity)
+        // One element: "Time left until Asr, 3 hours, 7 minutes, 41 seconds".
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.updatesFrequently)
+        // The solar GRAPH's horizon crossing sits just ABOVE this whole block - the sun rises and
+        // sets over the caption and the digits both, in clear air (Abu, 2026-09-18: the arc used to
+        // cut through "TIME LEFT"). See `SkyCard.arcTopInset`.
+        .reportingSkyDigitsTop()
+    }
+
+    /// The caption's size and the gap under it. The digits are 26 pt bold rounded (`CountdownDigits`).
+    /// 11 pt, Apple's minimum text size (it was 10 until 2026-09-26); `groundLineOffset` follows it.
+    private static let captionSize: CGFloat = 11
+    private static let bigTimeLeftSpacing: CGFloat = 2
+
+    #if os(iOS)
+    /// Where the skyline's ground runs, from the top of the digits' frame: halfway between the INK of
+    /// "TIME LEFT" and the ink of the digits (Abu, 2026-09-25: "the ground for time left and the
+    /// countdown needs to be in between more in the middle"). It sat at the middle of the 2 pt between
+    /// the two FRAMES, but a frame is not its ink: the caption's runs a descender below its capitals, and
+    /// the digits' starts an ascender's worth above figures only cap-height tall. Measured on the 17 Pro
+    /// that put the line 2.7 pt under the caption and 7 pt above the digits. Worked out from the two
+    /// fonts' own metrics, so it stays in the middle if either size changes.
+    fileprivate static let groundLineOffset: CGFloat = {
+        let caption = UIFont.systemFont(ofSize: captionSize, weight: .semibold)
+        let plainDigits = UIFont.systemFont(ofSize: 26, weight: .bold)
+        let digits = plainDigits.fontDescriptor.withDesign(.rounded).map { UIFont(descriptor: $0, size: 26) } ?? plainDigits
+        // "TIME LEFT" is capitals: its ink ends at the baseline, a descender above its frame's bottom.
+        let captionInkGap = -caption.descender
+        // The digits' frame starts at the ascender, their ink at the cap height (lining figures).
+        let digitsInkGap = digits.ascender - digits.capHeight
+        return (digitsInkGap - bigTimeLeftSpacing - captionInkGap) / 2
+    }()
+    #else
+    fileprivate static let groundLineOffset: CGFloat = 0
+    #endif
+
+    /// "until Fajr": the footer's right side, shared with the sky card.
+    static func untilLabel(for prayer: Prayer) -> String {
+        "until \(countdownDisplayName(for: prayer))"
+    }
+
+    /// The plain card's footer: tonight's moon on the left, the prayer the countdown runs to on the right.
+    private func footerRow(next: Prayer) -> some View {
+        HStack(spacing: 6) {
+            #if os(iOS)
+            let phase = MoonPhase.onCurrentHour()
+            MoonPhaseGlyph(illumination: phase.illumination, isWaxing: phase.isWaxing)
+                .frame(width: 14, height: 14)
+            Text("\(phase.name) · \(phase.illuminationPercent)%")
+            #endif
+
+            Spacer(minLength: 8)
+
+            Text(Self.untilLabel(for: next))
+                .fontWeight(.semibold)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    private func handleScenePhaseChange(_ phase: ScenePhase) {
+        if phase == .active {
+            refreshProgressAndPrayerState()
+            startTimer()
+        } else {
+            stopTimer()
+        }
+    }
+
+    private func refreshProgressAndPrayerState() {
+        settings.updateCurrentAndNextPrayer()
+        // Cheap and self-guarded (early-returns unless the hijri day actually changed): keeps the
+        // displayed hijri date correct across Maghrib (when "switch at Maghrib" is on) and across
+        // midnight while the app stays foregrounded, without waiting for the next fetch.
+        settings.updateDates()
+        updateProgress()
+    }
+
+    private func updateProgress() {
+        progress = progressValue()
+    }
+
+    private func progressValue() -> Double {
+        guard var start = currentPrayer?.time, var end = nextPrayer?.time else { return 0 }
+
+        let now = Date()
+
+        // Handle the common overnight boundary where the current prayer began the previous day.
+        if start > now {
+            start.addTimeInterval(-86_400)
+        }
+
+        if end <= start {
+            end.addTimeInterval(86_400)
+        }
+
+        let total = end.timeIntervalSince(start)
+        guard total > 0 else { return 0 }
+
+        let remaining = end.timeIntervalSince(now)
+        return max(0, min(1, 1 - remaining / total))
+    }
+
+    private func startTimer() {
+        stopTimer()
+        let (interval, atBoundary) = nextRefreshInterval()
+        updateTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { _ in
+            DispatchQueue.main.async {
+                if atBoundary {
+                    // The adhan moment: re-resolve current/next (which restarts this timer through
+                    // `.onChange(of: nextPrayer)`) and move the bar.
+                    refreshProgressAndPrayerState()
+                } else {
+                    // A progress tick: the bar moves, the hijri date is re-checked (cheap, self-guarded);
+                    // no timeline merge.
+                    settings.updateDates()
+                    updateProgress()
+                }
+                startTimer()
+            }
+        }
+        // A boundary fire must land on time (the label flips from "Asr" to "Maghrib" at the adhan); the
+        // progress tick can drift, which lets the system coalesce it with other timers.
+        updateTimer?.tolerance = atBoundary ? 0 : 5
+    }
+
+    /// Seconds until the next refresh, and whether that refresh is the prayer boundary itself.
+    private func nextRefreshInterval() -> (TimeInterval, atBoundary: Bool) {
+        guard let nextPrayer else { return (progressTickInterval, false) }
+        // A quarter second past the boundary, so current/next resolve on its far side.
+        let untilBoundary = nextPrayer.time.timeIntervalSinceNow + 0.25
+        if untilBoundary <= 0 {
+            // Already past it and current/next still have not moved on (the day's list is stale until
+            // the next fetch): keep re-resolving, but at the slow tick, never in a tight loop.
+            return (progressTickInterval, true)
+        }
+        if untilBoundary <= progressTickInterval {
+            return (untilBoundary, true)
+        }
+        return (progressTickInterval, false)
+    }
+
+    private func stopTimer() {
+        updateTimer?.invalidate()
+        updateTimer = nil
+    }
+}
+
+extension PrayerCountdown: Equatable {
+    /// Everything else this view draws comes from observed `Settings` state or its own timer-driven
+    /// `progress`. Gating on `presentation` matters for `.skyFooter`: `SkyView` re-runs its body
+    /// every second to move the sun and would otherwise drag the whole countdown subtree with it.
+    /// `showPrayerInfoKey` is compared too: the body branches on that toggle, and relying on the
+    /// Settings publish to bypass this gate proved unreliable (the same staleness class as the
+    /// accent-color bug the render signatures fixed).
+    static func == (lhs: PrayerCountdown, rhs: PrayerCountdown) -> Bool {
+        lhs.presentation == rhs.presentation &&
+        lhs.showPrayerInfoKey == rhs.showPrayerInfoKey
+    }
+}
+
+private struct CurrentPrayerCell: View {
+    let prayer: Prayer
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            title
+            
+            #if os(iOS)
+            subtitle
+            #endif
+            
+            Text("Started at \(prayer.time, style: .time)")
+                .font(.headline)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .multilineTextAlignment(.leading)
+    }
+
+    private var title: some View {
+        HStack {
+            #if os(iOS)
+            Image(systemName: prayer.image)
+                .lineLimit(1)
+                .minimumScaleFactor(1)
+            #else
+            if !prayer.nameTransliteration.contains("/") {
+                Image(systemName: prayer.image)
+            }
+            #endif
+            Text(countdownDisplayName(for: prayer))
+        }
+        .modifier(PrayerTitleStyle(prayer: prayer))
+    }
+
+    private var subtitle: some View {
+        PrayerSubtitleView(prayer: prayer, alignment: .leading)
+    }
+}
+
+private struct UpcomingPrayerCell: View {
+    let prayer: Prayer
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 5) {
+            title
+            
+            #if os(iOS)
+            subtitle
+            #endif
+            
+            Text("Starts at \(prayer.time, style: .time)")
+                .font(.headline)
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .multilineTextAlignment(.trailing)
+    }
+
+    private var title: some View {
+        HStack {
+            Text(countdownDisplayName(for: prayer))
+            
+            #if os(iOS)
+            Image(systemName: prayer.image)
+                .lineLimit(1)
+                .minimumScaleFactor(1)
+            #else
+            if !prayer.nameTransliteration.contains("/") {
+                Image(systemName: prayer.image)
+            }
+            #endif
+        }
+        .modifier(PrayerTitleStyle(prayer: prayer))
+    }
+
+    private var subtitle: some View {
+        PrayerSubtitleView(prayer: prayer, alignment: .trailing)
+    }
+}
+
+private func countdownDisplayName(for prayer: Prayer) -> String {
+    prayer.nameTransliteration == "Islamic Midnight" ? "Midnight" : prayer.displayName
+}
+
+/// Leaf styling reads the accent off the appearance environment, not `Settings`: each of these
+/// cells was a whole-object subscriber that re-ran on every Settings publish.
+private struct PrayerTitleStyle: ViewModifier {
+    @Environment(\.appearance) private var appearance
+
+    let prayer: Prayer
+
+    func body(content: Content) -> some View {
+        content
+            #if os(iOS)
+            .font(.title3)
+            #else
+            .font(.subheadline)
+            #endif
+            .foregroundColor(prayer.nameTransliteration == "Shurooq" ? .primary : appearance.accent)
+    }
+}
+
+private struct PrayerSubtitleView: View {
+    @Environment(\.appearance) private var appearance
+
+    let prayer: Prayer
+    let alignment: TextAlignment
+
+    private var isCombinedTravelPrayer: Bool {
+        prayer.nameTransliteration.contains("/")
+    }
+
+    private var subtitleText: String {
+        if Settings.optionalPrayerNames.contains(prayer.nameTransliteration) {
+            if prayer.nameTransliteration == "Islamic Midnight" {
+                return "Middle of Night"
+            }
+            return prayer.nameEnglish
+        }
+        if isCombinedTravelPrayer {
+            return prayer.nameArabic
+        }
+        return "\(prayer.nameEnglish) / \(prayer.nameArabic)"
+    }
+
+    private var subtitleColor: Color {
+        prayer.nameTransliteration == "Shurooq" ? .primary.opacity(0.7) : appearance.accent.opacity(0.7)
+    }
+
+    var body: some View {
+        Text(subtitleText)
+            .font(.title3)
+            .foregroundColor(subtitleColor)
+            .multilineTextAlignment(alignment)
+    }
+}
+
+private struct CurrentPrayerInfoView: View {
+    let prayer: Prayer
+
+    var body: some View {
+        PrayerInfoColumn(prayer: prayer, alignment: .leading)
+    }
+}
+
+private struct UpcomingPrayerInfoView: View {
+    let prayer: Prayer
+
+    var body: some View {
+        PrayerInfoColumn(prayer: prayer, alignment: .trailing)
+    }
+}
+
+private struct PrayerInfoColumn: View {
+    let prayer: Prayer
+    let alignment: Alignment
+
+    var body: some View {
+        VStack(alignment: horizontalAlignment, spacing: 5) {
+            PrayerRakahInfoView(prayer: prayer, captionFont: .caption, alignment: alignment)
+            PrayerSunnahInfoView(prayer: prayer, alignment: alignment)
+        }
+        .frame(maxWidth: .infinity, alignment: alignment)
+        .multilineTextAlignment(textAlignment)
+    }
+
+    private var horizontalAlignment: HorizontalAlignment {
+        switch alignment {
+        case .leading:
+            return .leading
+        case .trailing:
+            return .trailing
+        default:
+            return .center
+        }
+    }
+
+    private var textAlignment: TextAlignment {
+        switch alignment {
+        case .leading:
+            return .leading
+        case .trailing:
+            return .trailing
+        default:
+            return .center
+        }
+    }
+}
+
+private struct PrayerRakahInfoView: View {
+    let prayer: Prayer
+    let captionFont: Font
+    let alignment: Alignment
+
+    private var isOptionalPrayer: Bool {
+        Settings.optionalPrayerNames.contains(prayer.nameTransliteration)
+    }
+
+    var body: some View {
+        Group {
+            if prayer.rakah != "0" {
+                Text("Prayer Rakahs: \(prayer.rakah)")
+                    #if os(iOS)
+                    .font(captionFont)
+                    #else
+                    .font(.caption2)
+                    #endif
+                    .foregroundColor(.primary)
+            } else if prayer.nameTransliteration == "Islamic Midnight" {
+                Text("Midnight is not a prayer, but marks the end of Isha")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            } else if isOptionalPrayer {
+                Text(prayer.nameEnglish)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            } else {
+                Text("Shurooq is not a prayer, but marks the end of Fajr")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: alignment)
+    }
+}
+
+private struct PrayerSunnahInfoView: View {
+    let prayer: Prayer
+    let alignment: Alignment
+
+    var body: some View {
+        VStack(alignment: horizontalAlignment, spacing: 5) {
+            if prayer.sunnahBefore != "0" {
+                Text("Sunnah Rakahs Before: \(prayer.sunnahBefore)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            
+            if prayer.sunnahAfter != "0" {
+                Text("Sunnah Rakahs After: \(prayer.sunnahAfter)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            if let sunnahNote = prayer.sunnahNote {
+                Text(sunnahNote)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: alignment)
+    }
+
+    private var horizontalAlignment: HorizontalAlignment {
+        switch alignment {
+        case .leading:
+            return .leading
+        case .trailing:
+            return .trailing
+        default:
+            return .center
+        }
+    }
+}
+
+#Preview {
+    AlIslamPreviewContainer(embedInNavigation: false) {
+        List {
+            PrayerCountdown()
+        }
+        .applyConditionalListStyle(disableNowPlayingInset: true)
+    }
+}
+
+/// The big digits. Hours and minutes in one size, the seconds a step smaller: `Text(style: .timer)`
+/// cannot be split, so the full tier ticks a one-second timeline (this leaf only, never the card) and
+/// the reduced tier and Reduce Motion fall back to the system timer text in one size, which updates
+/// without any body evaluation at all.
+private struct CountdownDigits: View {
+    @Environment(\.appearance) private var appearance
+
+    let target: Date
+
+    /// 26 pt at the default text size and never less, growing with Dynamic Type above it: at the
+    /// accessibility sizes the plain card's fixed 26 pt digits ended up smaller than the prayer names
+    /// around them. The sky card caps its text at the default size, so there this is always 26, and
+    /// the skyline's ground line (`groundLineOffset`, worked out from 26 pt metrics) stays put.
+    @ScaledMetric(relativeTo: .title) private var scaledDigits: CGFloat = 26
+    private var digitsSize: CGFloat { max(26, scaledDigits) }
+    @State private var isOnScreen = true
+    /// Re-anchored on every appearance so the first tick after a return never shows a stale second.
+    @State private var clockAnchor = Date()
+    @Environment(\.scenePhase) private var scenePhase
+
+    var body: some View {
+        digits
+            .onAppear { isOnScreen = true; clockAnchor = Date() }
+            .onDisappear { isOnScreen = false }
+            .onChange(of: scenePhase) { phase in
+                if phase == .active { clockAnchor = Date() }
+            }
+    }
+
+    @ViewBuilder
+    private var digits: some View {
+        if appearance.reduceAnimations || appearance.isReducedTier {
+            Text(target, style: .timer)
+                .font(.system(size: digitsSize, weight: .bold, design: .rounded).monospacedDigit())
+        } else {
+            // Off screen (another tab, a pushed screen, a sheet) the schedule stretches to an hour, the
+            // SkyView pattern (Phase 10.8): the 1 Hz tick used to run for as long as the app was open,
+            // re-evaluating this stack and formatting the spoken label every second on any tab.
+            TimelineView(.periodic(from: clockAnchor, by: isOnScreen ? 1 : 3600)) { context in
+                let parts = Self.parts(remaining: target.timeIntervalSince(context.date))
+                HStack(alignment: .lastTextBaseline, spacing: 1) {
+                    Text(parts.main)
+                        .font(.system(size: digitsSize, weight: .bold, design: .rounded))
+                    Text(parts.seconds)
+                        .font(.system(size: digitsSize * 15 / 26, weight: .semibold, design: .rounded))
+                        .opacity(0.75)
+                }
+                .monospacedDigit()
+                // Read as a duration: the two Texts were spoken as "6:09" and ":35".
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Self.spoken(remaining: target.timeIntervalSince(context.date)))
+            }
+        }
+    }
+
+    private static let spokenFormatter: DateComponentsFormatter = {
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .full
+        formatter.allowedUnits = [.hour, .minute, .second]
+        return formatter
+    }()
+
+    /// "3 hours, 7 minutes, 41 seconds" (whole seconds, never negative, like `parts`).
+    static func spoken(remaining: TimeInterval) -> String {
+        spokenFormatter.string(from: TimeInterval(max(0, Int(remaining.rounded(.down))))) ?? ""
+    }
+
+    /// "6:09" and ":35" for six hours, nine minutes and thirty-five seconds; never negative (a stale
+    /// target across a prayer boundary reads 0:00 until the card re-resolves).
+    static func parts(remaining: TimeInterval) -> (main: String, seconds: String) {
+        let total = max(0, Int(remaining.rounded(.down)))
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        return (String(format: "%d:%02d", hours, minutes), String(format: ":%02d", seconds))
+    }
+}
+
+/// A linear progress bar filled with the accent gradient. `ProgressView` only accepts a flat `tint`, so a
+/// two-color accent needs its own bar. Matches the stock bar's 4pt height and capsule ends.
+struct AccentGradientBar: View {
+    @ObservedObject private var settings = Settings.shared
+
+    /// 0…1. Clamped, because a stale progress value crossing a prayer boundary can briefly fall outside it.
+    var progress: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            let fraction = min(max(progress, 0), 1)
+
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.primary.opacity(0.18))
+
+                Capsule()
+                    .fill(settings.accentColor.gradient(from: .leading, to: .trailing))
+                    .frame(width: geo.size.width * fraction)
+            }
+        }
+        .frame(height: 4)
+    }
+}
+
+#if os(iOS)
+/// The top of the sky card's whole countdown block ("TIME LEFT" and the digits beneath it), in
+/// `SkyCard.groundSpace`: the skyline's ground runs just above it, so the caption and the digits
+/// are both below the horizon (see `SkyCard.arcTopInset`). Nil until the first layout.
+struct SkyDigitsTopKey: PreferenceKey {
+    static let defaultValue: CGFloat? = nil
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+        value = nextValue() ?? value
+    }
+}
+
+/// Where the skyline's drawn ground runs, in `SkyCard.groundSpace`: between the "TIME LEFT" caption
+/// and the countdown DIGITS under it, halfway between their ink (`PrayerCountdown.groundLineOffset`).
+/// Separate from `SkyDigitsTopKey` because the two pin different things: the block's top pins the
+/// solar graph's horizon crossing, this point pins the ground the pyramids and the mosque stand on.
+/// Nil until the first layout.
+struct SkyGroundLineKey: PreferenceKey {
+    static let defaultValue: CGFloat? = nil
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+        value = nextValue() ?? value
+    }
+}
+#endif
+
+extension View {
+    /// Legibility for white text drawn straight onto the sky card: a soft dark halo hugging the
+    /// glyphs. The sky is the user's own two colours and can be a pale midday blue, where plain white
+    /// measured 2.4:1 ("Started at 1:01 PM") and the "TIME LEFT" caption 1.73:1, against 4.5:1 for
+    /// text this size. The halo darkens only the air around each stroke, so the sky keeps its colour
+    /// everywhere else (a wider scrim would dim the sun and the skyline with it). Two layers: a tight
+    /// one that defines each stroke's edge and a soft one that darkens the air between letters (one
+    /// soft layer alone measured only 3.3:1). Plain shadows, not `softShadow`: this is legibility,
+    /// not decoration, so the reduced tier keeps it too, and it redraws only with its text.
+    func skyLegibility() -> some View {
+        shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 0.5)
+            .shadow(color: .black.opacity(0.35), radius: 3, x: 0, y: 0)
+    }
+}
+
+private extension View {
+    /// Reports the view's top edge to the sky card (iOS only: the Watch has no sky card).
+    @ViewBuilder
+    func reportingSkyDigitsTop() -> some View {
+        #if os(iOS)
+        background(GeometryReader { geo in
+            Color.clear.preference(key: SkyDigitsTopKey.self,
+                                   value: geo.frame(in: .named(SkyCard.groundSpace)).minY)
+        })
+        #else
+        self
+        #endif
+    }
+
+    /// Reports the skyline's ground line: this view's top edge moved by `offset` (see `SkyGroundLineKey`).
+    @ViewBuilder
+    func reportingSkyGroundLine(offset: CGFloat) -> some View {
+        #if os(iOS)
+        background(GeometryReader { geo in
+            Color.clear.preference(key: SkyGroundLineKey.self,
+                                   value: geo.frame(in: .named(SkyCard.groundSpace)).minY + offset)
+        })
+        #else
+        self
+        #endif
+    }
+}

@@ -81,11 +81,15 @@ struct PrayerGradientEntryView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
 
-            Text(hijriDate)
-                .font(.caption2)
-                .opacity(0.75)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+            HStack(spacing: 6) {
+                Text(hijriDate)
+                Spacer(minLength: 0)
+                WidgetWeatherChip(weather: entry.weather)
+            }
+            .font(.caption2)
+            .opacity(0.75)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
@@ -118,19 +122,12 @@ struct PrayerGradientEntryView: View {
 
                 Spacer(minLength: 0)
 
-                // The city at the foot of this column, level with the Hijri date at the foot of the
-                // right one: together they are the layout's date-and-place line.
-                if !entry.currentCity.isEmpty {
-                    HStack(spacing: 3) {
-                        Image(systemName: "location.fill")
-
-                        Text(entry.currentCity)
-                    }
+                // The city (and the weather to its right) at the foot of this column, level with the
+                // Hijri date at the foot of the right one: together they are the layout's date-and-place
+                // line. The city truncates before the temperature gives way.
+                WidgetCityWeatherLine(city: entry.currentCity, weather: entry.weather)
                     .font(.caption2)
                     .opacity(0.75)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
@@ -186,8 +183,9 @@ struct PrayerSkyChrome: ViewModifier {
         if showsSky {
             content.modifier(PrayerSkyBackground(
                 colors: entry.skyColors,
-                starOpacity: SkyStars.opacity(forPeriod: entry.skyPeriod),
-                twinkleTime: entry.date.timeIntervalSinceReferenceDate
+                starOpacity: SkyStars.opacity(forPeriod: entry.skyPeriod) * (entry.weather?.look.starFactor ?? 1),
+                twinkleTime: entry.date.timeIntervalSinceReferenceDate,
+                weather: entry.weather
             ))
         } else {
             content.widgetContainerBackground(legacyPadding: true)
@@ -207,10 +205,13 @@ struct PrayerSkyBackground: ViewModifier {
     /// Which frame of the twinkle this entry shows (seconds; the app passes its live clock). Entries
     /// minutes apart land on different frames, so the field is not frozen in the same pose all night.
     var twinkleTime: TimeInterval = 0
+    /// The sky's weather, drawn over the gradient the same way the app's card draws it (SkyWeather.swift).
+    var weather: SkyWeather? = nil
 
     /// The gradient with its stars and scrim, on its own: also what the app's widget gallery paints
     /// behind a sky layout, where `containerBackground` is a no-op.
-    static func fill(colors: [Color], starOpacity: Double = 0, twinkleTime: TimeInterval = 0) -> some View {
+    static func fill(colors: [Color], starOpacity: Double = 0, twinkleTime: TimeInterval = 0,
+                     weather: SkyWeather? = nil) -> some View {
         LinearGradient(colors: colors, startPoint: .top, endPoint: .bottom)
             // Between the gradient and the scrim, the order the app's card stacks them in. A widget
             // cannot animate, so this is one still frame of the shared field rather than a twinkle;
@@ -222,6 +223,10 @@ struct PrayerSkyBackground: ViewModifier {
                                   size: size,
                                   time: twinkleTime,
                                   opacity: starOpacity)
+                    if let weather, !weather.look.isClear {
+                        SkyWeatherOverlay.draw(in: &context, size: size, look: weather.look,
+                                               night: starOpacity > 0.4 || !weather.isDaylight, time: twinkleTime)
+                    }
                 }
                 .allowsHitTesting(false)
             }
@@ -235,7 +240,7 @@ struct PrayerSkyBackground: ViewModifier {
     }
 
     private var background: some View {
-        Self.fill(colors: colors, starOpacity: starOpacity, twinkleTime: twinkleTime)
+        Self.fill(colors: colors, starOpacity: starOpacity, twinkleTime: twinkleTime, weather: weather)
     }
 
     func body(content: Content) -> some View {
@@ -259,7 +264,7 @@ struct PrayerSkyBackground: ViewModifier {
 // MARK: - The three sky widgets + the normal-background twin
 
 struct PrayerGradientWidget: Widget {
-    let kind: String = "PrayerGradientWidget"
+    let kind: String = AdhanWidgetKind.PrayerGradientWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -274,7 +279,7 @@ struct PrayerGradientWidget: Widget {
 /// The Prayer Glance Sky layout on the standard widget background - for anyone who loves the layout
 /// but wants it to match the rest of their home screen.
 struct PrayerGlanceWidget: Widget {
-    let kind: String = "PrayerGlanceWidget"
+    let kind: String = AdhanWidgetKind.PrayerGlanceWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -288,7 +293,7 @@ struct PrayerGlanceWidget: Widget {
 
 /// The Prayer Countdown widget, unchanged, over the current prayer's sky gradient.
 struct CountdownSkyWidget: Widget {
-    let kind: String = "CountdownSkyWidget"
+    let kind: String = AdhanWidgetKind.CountdownSkyWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -303,7 +308,7 @@ struct CountdownSkyWidget: Widget {
 
 /// The Prayer Grid widget, unchanged, over the current prayer's sky gradient.
 struct PrayersSkyWidget: Widget {
-    let kind: String = "PrayersSkyWidget"
+    let kind: String = AdhanWidgetKind.PrayersSkyWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in

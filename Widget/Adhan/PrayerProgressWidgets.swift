@@ -95,34 +95,69 @@ struct PrayerWidgetContextRow: View {
             if stacked {
                 VStack(alignment: alignment, spacing: 2) {
                     date
-                    city
+                    WidgetCityWeatherLine(city: entry.currentCity, weather: entry.weather)
                 }
             } else {
                 HStack(spacing: 8) {
                     date
                     Spacer(minLength: 0)
-                    city
+                    WidgetCityWeatherLine(city: entry.currentCity, weather: entry.weather)
                 }
             }
         }
         .font(font)
         .foregroundColor(skyStyle ? .white.opacity(0.75) : .secondary)
         .lineLimit(1)
-        .minimumScaleFactor(0.6)
     }
 
+    /// The date keeps its size first (shrinking a little if it must); the place line truncates.
     private var date: some View {
         Text(AdhanWidgetDateFormatting.hijriDate(for: entry, style: .medium))
+            .minimumScaleFactor(0.6)
+            .layoutPriority(1)
     }
+}
 
-    @ViewBuilder
-    private var city: some View {
-        if !entry.currentCity.isEmpty {
-            HStack(spacing: 3) {
-                Image(systemName: "location.fill")
+/// The city with the weather to its RIGHT, on one line (Abu, 2026-10-11: "if you mention the temperature
+/// put it to the right of location, if it can't fit then truncate"). The temperature never shrinks or
+/// clips; the city name gives way with a trailing ellipsis. With no city yet, the weather stands alone;
+/// with neither, nothing.
+struct WidgetCityWeatherLine: View {
+    let city: String
+    let weather: SkyWeather?
 
-                Text(entry.currentCity)
+    var body: some View {
+        HStack(spacing: 6) {
+            if !city.isEmpty {
+                HStack(spacing: 3) {
+                    Image(systemName: "location.fill")
+
+                    Text(city)
+                        .truncationMode(.tail)
+                }
             }
+            WidgetWeatherChip(weather: weather)
+                .fixedSize()
+                .layoutPriority(1)
+        }
+        .lineLimit(1)
+    }
+}
+
+/// The weather beside a widget's city: the condition's symbol and the temperature, in whatever font
+/// and colour the line around it wears. Nothing at all without a fresh reading (SkyWeather.swift),
+/// so a widget with the weather off is laid out exactly as before.
+struct WidgetWeatherChip: View {
+    let weather: SkyWeather?
+
+    var body: some View {
+        if let weather {
+            HStack(spacing: 3) {
+                Image(systemName: weather.symbolName)
+                Text(weather.temperatureText)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(weather.conditionText), \(weather.temperatureText)")
         }
     }
 }
@@ -139,6 +174,46 @@ func prayerTierColor(for prayer: Prayer, in prayers: [Prayer], entry: PrayersPro
     if index < currentIndex { return skyStyle ? .white.opacity(0.45) : .secondary }
     if index == currentIndex { return skyStyle ? .white : entry.accentColor.color }
     return skyStyle ? .white.opacity(0.8) : .primary
+}
+
+/// True when this prayer is the one the day is currently in - the same name match the app's own
+/// grid and split use (`currentPrayerName`), so a widget highlights exactly the row the tab does.
+func isCurrentPrayer(_ prayer: Prayer, entry: PrayersProvider.Entry) -> Bool {
+    guard let current = entry.currentPrayer?.nameTransliteration else { return false }
+    return current == prayer.nameTransliteration
+}
+
+/// The rounded well under a prayer cell, ported from the app's `PrayerCellWell` (iPhone/Adhan/
+/// PrayerList.swift) so the widgets' Prayer Grid and Prayer Split read as the same design as the
+/// Adhan tab's own Grid and Split layouts (Abu, 2026-10-05: "you see the updated grid and split we
+/// did for adhan? do the same thing for widgets").
+///
+/// The current prayer's cell fills with the accent at 20% behind a 45% border; every other cell gets
+/// a bare 5% neutral so the grid still reads as cells. Over a sky gradient the accent is unreadable,
+/// so there the fill is white and the neutral drops out entirely - the gradient IS the background.
+///
+/// No `softShadow` (the app's well carries one): a widget is a still archived image and the shadow
+/// cost a visible halo on the gradient without adding depth.
+struct PrayerWidgetCellWell: View {
+    let isCurrent: Bool
+    let accent: Color
+    var cornerRadius: CGFloat = 10
+    /// 0 for the split rows, which sit close enough that a neutral fill on each read as banding.
+    var neutralOpacity: Double = 0.05
+    var skyStyle: Bool = false
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let fill: Color = isCurrent
+            ? (skyStyle ? Color.white.opacity(0.22) : accent.opacity(0.2))
+            : (skyStyle ? .clear : Color.primary.opacity(neutralOpacity))
+        let border: Color = isCurrent
+            ? (skyStyle ? Color.white.opacity(0.55) : accent.opacity(0.45))
+            : .clear
+        shape
+            .fill(fill)
+            .overlay(shape.strokeBorder(border, lineWidth: 1))
+    }
 }
 
 /// Three-ish letters so a prayer name survives tiny lock-screen surfaces; combined traveling rows keep
@@ -192,7 +267,7 @@ struct PrayerProgressRingView: View {
 
 @available(iOS 16.0, *)
 struct PrayerProgressRingWidget: Widget {
-    let kind: String = "PrayerProgressRingWidget"
+    let kind: String = AdhanWidgetKind.PrayerProgressRingWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -241,7 +316,7 @@ struct PrayerCountdownCircularView: View {
 
 @available(iOS 16.0, *)
 struct PrayerCountdownCircularWidget: Widget {
-    let kind: String = "PrayerCountdownCircularWidget"
+    let kind: String = AdhanWidgetKind.PrayerCountdownCircularWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -368,7 +443,7 @@ struct PrayerWaveView: View {
 
 @available(iOS 16.0, *)
 struct PrayerWaveWidget: Widget {
-    let kind: String = "PrayerWaveWidget"
+    let kind: String = AdhanWidgetKind.PrayerWaveWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -472,7 +547,7 @@ struct PrayerDayView: View {
 }
 
 struct PrayerDayWidget: Widget {
-    let kind: String = "PrayerDayWidget"
+    let kind: String = AdhanWidgetKind.PrayerDayWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -487,7 +562,7 @@ struct PrayerDayWidget: Widget {
 
 /// The Prayer Day widget, unchanged, over the current prayer's sky gradient.
 struct PrayerDaySkyWidget: Widget {
-    let kind: String = "PrayerDaySkyWidget"
+    let kind: String = AdhanWidgetKind.PrayerDaySkyWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -530,13 +605,23 @@ struct FastingCountdownView: View {
         let now = entry.date
         if now < fajr {
             let lastMaghrib = Calendar.current.date(byAdding: .day, value: -1, to: maghrib) ?? maghrib
-            return ("Suhoor ends in", fajr, lastMaghrib)
+            return ("Suhoor ends in", PrayerMinute.suhoorEnd(forFajr: fajr), lastMaghrib)
         }
         if now < maghrib {
             return ("Iftar in", maghrib, fajr)
         }
         let nextFajr = Calendar.current.date(byAdding: .day, value: 1, to: fajr) ?? fajr
-        return ("Suhoor ends in", nextFajr, maghrib)
+        return ("Suhoor ends in", PrayerMinute.suhoorEnd(forFajr: nextFajr), maghrib)
+    }
+
+    /// A countdown that holds at 0:00 once the deadline passes. Suhoor ends a minute before Fajr and
+    /// the timeline's next entry is at Fajr, so for that minute the suhoor entry is still on screen,
+    /// and the plain `.timer` style would count back up from zero.
+    private func countdown(to deadline: Date) -> Text {
+        if #available(iOS 16.0, *) {
+            return Text(timerInterval: min(entry.date, deadline)...deadline, countsDown: true)
+        }
+        return Text(deadline, style: .timer)
     }
 
     var body: some View {
@@ -547,7 +632,7 @@ struct FastingCountdownView: View {
                         Image(systemName: phase.label == "Iftar in" ? "sunset.fill" : "sunrise.fill")
                             .font(.subheadline)
 
-                        Text("\(phase.label) \(Text(phase.deadline, style: .timer))")
+                        Text("\(phase.label) \(countdown(to: phase.deadline))")
                             .font(.headline)
                     }
                     .foregroundColor(accent)
@@ -614,7 +699,7 @@ struct FastingCountdownView: View {
 }
 
 struct FastingCountdownWidget: Widget {
-    let kind: String = "FastingCountdownWidget"
+    let kind: String = AdhanWidgetKind.FastingCountdownWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -629,7 +714,7 @@ struct FastingCountdownWidget: Widget {
 
 /// The Fasting Countdown widget, unchanged, over the current prayer's sky gradient.
 struct FastingCountdownSkyWidget: Widget {
-    let kind: String = "FastingCountdownSkyWidget"
+    let kind: String = AdhanWidgetKind.FastingCountdownSkyWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -685,7 +770,7 @@ struct PrayerRowLockView: View {
 
 @available(iOS 16.0, *)
 struct PrayerRowLockWidget: Widget {
-    let kind: String = "PrayerRowLockWidget"
+    let kind: String = AdhanWidgetKind.PrayerRowLockWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -747,7 +832,7 @@ struct NextPrayerProgressView: View {
 
 @available(iOS 16.0, *)
 struct NextPrayerProgressWidget: Widget {
-    let kind: String = "NextPrayerProgressWidget"
+    let kind: String = AdhanWidgetKind.NextPrayerProgressWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -808,7 +893,7 @@ struct PrayerListSmallView: View {
 }
 
 struct PrayerListSmallWidget: Widget {
-    let kind: String = "PrayerListSmallWidget"
+    let kind: String = AdhanWidgetKind.PrayerListSmallWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -823,7 +908,7 @@ struct PrayerListSmallWidget: Widget {
 
 /// The Prayer List widget, unchanged, over the current prayer's sky gradient.
 struct PrayerListSmallSkyWidget: Widget {
-    let kind: String = "PrayerListSmallSkyWidget"
+    let kind: String = AdhanWidgetKind.PrayerListSmallSkyWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -935,7 +1020,7 @@ struct NextPrayerBoardView: View {
 }
 
 struct NextPrayerBoardWidget: Widget {
-    let kind: String = "NextPrayerBoardWidget"
+    let kind: String = AdhanWidgetKind.NextPrayerBoardWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -950,7 +1035,7 @@ struct NextPrayerBoardWidget: Widget {
 
 /// The Current Prayer widget, unchanged, over the current prayer's sky gradient.
 struct NextPrayerBoardSkyWidget: Widget {
-    let kind: String = "NextPrayerBoardSkyWidget"
+    let kind: String = AdhanWidgetKind.NextPrayerBoardSkyWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in

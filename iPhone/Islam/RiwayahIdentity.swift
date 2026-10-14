@@ -99,6 +99,16 @@ extension Settings {
         static let ishaqArabic = "إِسحَاق عَن خَلَفٍ العَاشِر"
         static let idrisArabic = "إِدرِيس عَن خَلَفٍ العَاشِر"
 
+        /// The 12 machine-extracted riwayat (behind `Settings.betaQiraatEnabled`). Mirrors
+        /// `Settings.Riwayah.betaTags` in Al-Islam's SettingsQuran.swift (its `allOptions` beta flags);
+        /// the watch sync reads it to send a beta riwayah as Hafs (WatchConnectivity.swift).
+        static let betaTags: Set<String> = [
+            hisham, ibnDhakwan, khalaf, khallad, abuHarith, duriKisai,
+            ibnWardan, ibnJammaz, ruways, rawh, ishaq, idris,
+        ]
+
+        static func isBeta(_ tag: String) -> Bool { betaTags.contains(canonicalTag(tag)) }
+
         /// Mirrors `Settings.Riwayah.canonicalTag` in Al-Islam's SettingsQuran.swift: folds the
         /// stored spellings this app has shipped over the years onto one tag per riwayah.
         static func canonicalTag(_ stored: String) -> String {
@@ -125,29 +135,76 @@ extension Settings {
 // in lockstep with Al-Islam's TajweedRules.swift.
 struct TajweedRules {
     static let qalqalahLetters: Set<Character> = ["ق", "ط", "ب", "ج", "د"]
+    /// The ikhfaa letters read heavy (the letter families page paints them with `.ikhfaaHeavy`).
+    static let ikhfaaHeavyLetters: Set<Character> = ["ص", "ض", "ط", "ظ", "ق"]
 }
 
-enum TajweedLegendCategory {
+/// The tajweed legend's rule names and canonical colors. In Al-Islam this is the Quran reader's
+/// `TajweedLegendCategory` (Quran/Tajweed/TajweedRules.swift); the Arabic alphabet's letter traits, the
+/// Tajweed Foundations pages and the course model name a rule by it and paint its swatch, so the cases,
+/// raw values, English titles and canonical colors are mirrored here. No custom colors: they are picked
+/// in the reader's legend, which this app does not ship. Keep in lockstep with TajweedRules.swift.
+enum TajweedLegendCategory: String, CaseIterable, Identifiable {
+    case lamShamsiyah
+    case droppedLetter
+    case hamzatWaslSilent
+    case idghamBilaGhunnah
+
+    case idghamGhunnah
+    case generalGhunnah
+    case ikhfaaLight
+    case ikhfaaHeavy
+    case iqlaab
+
     case qalqalah
+    case tafkhim
+
+    case maddNatural
+    case maddNaturalMiniature
+    case maddSukoon
+    case maddSeparated
+    case maddConnected
+    case maddNecessary
+
+    var id: String { rawValue }
+
+    var englishTitle: String {
+        switch self {
+        case .lamShamsiyah: return "Solar Lam"
+        case .droppedLetter: return "Written but Not Pronounced"
+        case .hamzatWaslSilent: return "Joining Hamzah"
+        case .idghamBilaGhunnah: return "Merge Without Ghunnah"
+        case .idghamGhunnah: return "Merge with Ghunnah"
+        case .generalGhunnah: return "Shaddah Ghunnah"
+        case .ikhfaaLight: return "Hidden Letter (Light)"
+        case .ikhfaaHeavy: return "Hidden Letter (Heavy)"
+        case .iqlaab: return "Noon into Meem"
+        case .qalqalah: return "Bounce Letter"
+        case .tafkhim: return "Heavy Letter"
+        case .maddNatural: return "Madd Letters (2 Counts)"
+        case .maddNaturalMiniature: return "Tiny Madd Marks"
+        case .maddSukoon: return "Ending Madd"
+        case .maddSeparated: return "Madd Munfasil"
+        case .maddConnected: return "Madd Muttasil"
+        case .maddNecessary: return "Madd Lazim"
+        }
+    }
 
     var color: Color {
-        Color(red: 0.4706, green: 0.8000, blue: 0.9765) // 78CCF9
-    }
-}
-
-// In Al-Islam this lives in Settings.swift next to the Quran counters it also hashes; this
-// app's profile derives only from the prayer tracker, so the stamp reduces to the tracker's
-// own inputs (see `trackerStats` in PrayerTrackerView.swift, which hashes the same set).
-extension Settings {
-    /// A cheap stamp of everything `ProfileStats` derives from, so the profile can skip
-    /// recomputing when nothing it reads has changed.
-    var profileStatsStamp: Int {
-        var hasher = Hasher()
-        hasher.combine(prayerTrackerData)
-        hasher.combine(trackerExemptDaysData)
-        hasher.combine(mensesPauseActive)
-        hasher.combine(mensesPauseStartStamp)
-        hasher.combine(Calendar.current.startOfDay(for: Date()))
-        return hasher.finalize()
+        switch self {
+        case .lamShamsiyah, .hamzatWaslSilent, .droppedLetter, .idghamBilaGhunnah:
+            return Color(red: 0.7059, green: 0.7059, blue: 0.7059) // B4B4B4
+        case .idghamGhunnah, .generalGhunnah, .ikhfaaLight:
+            return Color(red: 0.2706, green: 0.7373, blue: 0.4510) // 45BC73
+        case .ikhfaaHeavy: return Color(red: 0.1216, green: 0.6667, blue: 0.5804) // 1FAA94
+        case .iqlaab: return Color(red: 0.4588, green: 0.6980, blue: 0.2000) // 75B233
+        case .tafkhim: return Color(red: 0.2314, green: 0.5216, blue: 0.7608) // 3B85C2
+        case .qalqalah: return Color(red: 0.4706, green: 0.8000, blue: 0.9765) // 78CCF9
+        case .maddNatural, .maddNaturalMiniature: return Color(red: 0.7255, green: 0.5490, blue: 0.1843) // B98C2F
+        case .maddSukoon: return Color(red: 0.8902, green: 0.4745, blue: 0.2078) // E37935
+        case .maddSeparated: return Color(red: 0.9216, green: 0.3176, blue: 0.6667) // EB51AA
+        case .maddConnected: return Color(red: 0.8510, green: 0.2706, blue: 0.2431) // D9453E
+        case .maddNecessary: return Color(red: 0.6824, green: 0.1451, blue: 0.0902) // AE2517
+        }
     }
 }

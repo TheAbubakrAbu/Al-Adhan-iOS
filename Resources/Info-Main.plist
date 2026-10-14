@@ -10,11 +10,11 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Needed to accurately determine prayer times based on where you are (your location stays on your device).</string>
+	<string>Al-Adhan uses your location to calculate your prayer times and Qibla direction. Only Al-Adhan and Apple ever see it, and it is never shared with anyone else.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Needed to accurately determine prayer times based on where you are (your location stays on your device).</string>
+	<string>Al-Adhan uses your location to calculate your prayer times and Qibla direction. Only Al-Adhan and Apple ever see it, and it is never shared with anyone else.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
-	<string>Needed to accurately determine prayer times based on where you are (your location stays on your device).</string>
+	<string>Al-Adhan uses your location to calculate your prayer times and Qibla direction. Only Al-Adhan and Apple ever see it, and it is never shared with anyone else.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSPhotoLibraryAddUsageDescription</key>

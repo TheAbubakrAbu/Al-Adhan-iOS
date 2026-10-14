@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreLocation
+import UserNotifications
 
 struct AdhanView: View {
     @ObservedObject var settings = Settings.shared
@@ -36,6 +37,15 @@ struct AdhanView: View {
     /// Whether the list is in front (between `onAppear` and `onDisappear`): the flag-driven presentation
     /// in `autoChangeFlagsDidChange` only fires while it is.
     @State private var isOnScreen = false
+    #if os(iOS)
+    /// The permissions sheet (PermissionsSheet.swift): location and notifications, explained and asked
+    /// for from one place, before either system prompt. Presented once this tab is in front after the
+    /// welcome; its dismissal runs the refresh the bare prompts used to lead into.
+    @State private var showPermissionsSheet = false
+    @State private var permissionsSheetChecked = false
+    /// The scheme the list's content keeps while the sky does not fill the tab (`skyPageContent`).
+    @Environment(\.colorScheme) private var colorScheme
+    #endif
 
     enum AlertType: Identifiable {
         case travelTurnOnAutomatic
@@ -96,6 +106,9 @@ struct AdhanView: View {
     }
 
     var body: some View {
+        #if DEBUG
+        let _ = LaunchClock.markOnce("adhan root: first body")
+        #endif
         let _ = RenderCounter.hit("AdhanView")
         let _ = ChangePrinter.hit(Self.self)
         Group {
@@ -135,6 +148,12 @@ struct AdhanView: View {
                         settings.resetTravelAutomaticFlags()
                     case .calculationAutomaticChanged:
                         settings.confirmAutomaticCalculationChange()
+                    // Ignore, Open Settings or a tap outside: quiet for a day, not until the next
+                    // app open. Never Ask Again has already set its permanent flag.
+                    case .locationAlert:
+                        settings.snoozePermissionAlert(location: true)
+                    case .notificationAlert:
+                        settings.snoozePermissionAlert(location: false)
                     default:
                         break
                     }
@@ -149,10 +168,87 @@ struct AdhanView: View {
         }
     }
 
+    /// Simple Mode shows the tracker to someone who tracks: any prayer marked in the last
+    /// `SimpleMode.trackerWindowDays` (docs/Simple Mode Guide.md). Marking one from a prayer's detail
+    /// brings it back. At most fourteen lookups into the cached tracker, so the countdown tick can ask.
+    private var showsTracker: Bool {
+        !settings.simpleMode || settings.trackerMarkedRecently()
+    }
+
+    #if os(iOS)
+    /// The sky under the whole tab (`Settings.skyFillsAdhanTab`, SkyPageBackground.swift): only with
+    /// the sky on and something to paint it from, like the card itself.
+    private var fillsSky: Bool {
+        settings.showSkyView && settings.skyFillsAdhanTab && live.prayers != nil && live.currentLocation != nil
+    }
+
+    /// The prayer list's layout: the key `PrayerList` draws from and Prayer Settings' Prayer Times Layout
+    /// row writes. The watch always draws tiles, so the choice is the phone's alone.
+    @AppStorage("prayerDisplayModeV2") private var prayerDisplayModeRawValue: String = PrayerList.PrayerDisplayMode.tiles.rawValue
+
+    /// The tab's ⋯ More menu: the Prayer and Hijri calendars (pushed through `GlanceCalendarPushes`,
+    /// the same doors the glance tiles use, so the menu and the tiles can never stack two pushes), then
+    /// the prayer list's layout as a submenu (Abu, 2026-10-11: "have it be a menu that opens the
+    /// other"), the current one ticked inside it and named under the row.
+    @ViewBuilder
+    private var adhanMoreItems: some View {
+        TabMoreMenuItem("Prayer Calendar", systemImage: "calendar") {
+            settings.hapticFeedback()
+            if pushedCalendar == nil { pushedCalendar = .prayerCalendar }
+        }
+        TabMoreMenuItem("Hijri Calendar", systemImage: "moon.stars") {
+            settings.hapticFeedback()
+            if pushedCalendar == nil { pushedCalendar = .hijriCalendar }
+        }
+
+        Divider()
+
+        let layout = PrayerList.PrayerDisplayMode(rawValue: prayerDisplayModeRawValue) ?? .tiles
+        Menu {
+            Picker("Prayer Times Layout", selection: prayerLayoutSelection) {
+                ForEach(PrayerList.PrayerDisplayMode.allCases) { mode in
+                    Label(mode.displayName.capitalized, systemImage: mode.menuSymbol).tag(mode.rawValue)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            // The second Text is the row's subtitle (the Files app's Sort By): which layout is on,
+            // without opening the submenu.
+            Label("Prayer Times Layout", systemImage: layout.menuSymbol)
+            Text(layout.displayName.capitalized)
+        }
+    }
+
+    /// The picker's binding, with the haptic the header picker's `onChange` used to give: a modifier on
+    /// a view inside a menu is not reliably alive, so the binding's setter taps instead.
+    private var prayerLayoutSelection: Binding<String> {
+        Binding(
+            get: { prayerDisplayModeRawValue },
+            set: { newValue in
+                guard newValue != prayerDisplayModeRawValue else { return }
+                settings.hapticFeedback()
+                prayerDisplayModeRawValue = newValue
+            }
+        )
+    }
+    #endif
+
     private var adhanContent: some View {
         List {
             Group {
                 #if os(iOS)
+                // Traveling mode leads the tab, above the date and the sky: readers who missed the
+                // caption under the list took the four combined prayers for a bug (see
+                // TravelingModeBanner.swift).
+                if settings.travelingMode {
+                    Section {
+                        TravelingModeBanner(openTravelSettings: { settingsSheet = .travelingMode })
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+
                 // Date/location and the sky are their own sections again - sharing one made the sky's rounded
                 // card fight the rows above it. `compactListSectionSpacing` below closes the gap between them
                 // so they still read as one stacked header rather than two floating islands.
@@ -162,7 +258,7 @@ struct AdhanView: View {
 
                 if settings.showSkyView, live.prayers != nil, live.currentLocation != nil {
                     Section {
-                        SkyView()
+                        SkyView(pageSky: fillsSky)
                             .listRowBackground(Color.clear)
                     }
                 }
@@ -174,21 +270,36 @@ struct AdhanView: View {
                 // without scrolling (there is no scroll tooling for the simulator).
                 Group {
                     if hoistsTrackerForDebug {
-                        PrayerTrackerSection()
+                        if showsTracker { PrayerTrackerSection() }
                         prayersSection
                     } else {
                         prayersSection
-                        PrayerTrackerSection()
+                        if showsTracker { PrayerTrackerSection() }
                     }
                 }
 
-                Section(header: Text("AT A GLANCE")) {
-                    GlanceCard(onSelect: handleGlance)
+                // Need a Hand?: the questions this tab's readers ask (praying on time, traveling),
+                // each with the setting that answers it, between the tracker and the glance wall.
+                // See HelpDoors.swift.
+                HelpDoorsSection(area: .adhan)
+
+                // Simple Mode leaves the glance wall out: each tile is a shortcut to a door the tab
+                // already has (the calendar button, the compass, the city pill, the sky's moon).
+                if !settings.simpleMode {
+                    Section(header: SectionIconHeader("AT A GLANCE", icon: "rectangle.grid.2x2.fill")) {
+                        GlanceCard(onSelect: handleGlance)
+                    }
                 }
                 #else
                 // Watch: the countdown and prayer times come first (that's the whole reason you raised your
                 // wrist), then one compact card holding the date, the city and the Qibla - three separate
                 // full-width rows was most of a screen's worth of scrolling for information you glance at.
+                // Traveling mode leads here too, as a filled accent row: the four combined prayers
+                // below it need their reason in sight.
+                if settings.travelingMode {
+                    watchTravelingRow
+                }
+
                 prayersSection
 
                 Section {
@@ -197,7 +308,15 @@ struct AdhanView: View {
                 #endif
             }
             .themedListRowBackground()
+            #if os(iOS)
+            // Under the whole-tab sky the rows are its glass and the content draws light-on-dark. On
+            // the content, never the List: the sheets below would inherit the dark scheme otherwise.
+            .skyPageContent(active: fillsSky, scheme: colorScheme)
+            #endif
         }
+        #if os(iOS)
+        .skyPageFill(active: fillsSky, paused: !isOnScreen)
+        #endif
         // Sections stay separate but sit close together, so the header cards stack instead of drifting apart.
         .compactListSectionSpacing()
         .refreshable {
@@ -213,7 +332,10 @@ struct AdhanView: View {
         .onAppear {
             isOnScreen = true
             if appRevealed {
-                prayerTimeRefresh(force: false)
+                #if os(iOS)
+                openPendingQiblaIfAny()
+                #endif
+                askLocationThenRefresh()
                 settings.refreshLocationIfStale()
             } else {
                 // Behind the launch cover (this is the initial tab): compute today's list from the
@@ -225,7 +347,20 @@ struct AdhanView: View {
         }
         .onChange(of: appRevealed) { revealed in
             guard revealed else { return }
-            prayerTimeRefresh(force: false)
+            LaunchClock.mark("adhan root: reveal refresh")
+            // The location question waits for this tab to be in front (a learner's welcome lands on
+            // the Islam tab); the refresh runs either way, as it always has.
+            if isOnScreen {
+                #if os(iOS)
+                openPendingQiblaIfAny()
+                #endif
+                askLocationThenRefresh()
+            } else {
+                // Off screen (a learner's welcome lands on the Islam tab): the times refresh, but no
+                // system prompt. The permissions sheet is the one door to both prompts since
+                // 2026-10-11, and it is offered the first time this tab comes in front.
+                prayerTimeRefresh(force: false, askNotifications: false)
+            }
             settings.refreshLocationIfStale()
         }
         .onDisappear {
@@ -253,25 +388,29 @@ struct AdhanView: View {
         .navigationTitle("Al-Adhan")
         #if os(iOS)
         .toolbar {
-            // Leading toolbar is the first accent, trailing is the second - the same split the app uses for
-            // sections. With a single-color accent the two are identical, so nothing changes visually there.
+            // The leading slot is the ⋯ More menu, in both modes (Abu, 2026-10-11: "for prayer have it
+            // contain a menu to switch between tiles and grid and whatnot"): the two calendars, then the
+            // prayer list's layout, which until then was a picker in the PRAYER TIMES header. The gear
+            // keeps the trailing slot. Leading tints the first accent, trailing the second, the same
+            // split the app uses for sections.
             ToolbarItem(placement: .navigationBarLeading) {
-                NavigationLink {
-                    PrayerCalendarView()
-                } label: {
-                    Image(systemName: "calendar")
-                }
-                .simultaneousGesture(TapGesture().onEnded { settings.hapticFeedback() })
-                .tint(settings.accentColor.accent1)
+                TabMoreMenu { adhanMoreItems }
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     settings.hapticFeedback()
+                    // One sheet at a time: the glance sheets and this one are two `.sheet` bridges on
+                    // the same List, and raising this one while the Qibla sheet was coming up (a
+                    // Control Center tap, then the gear within a second) left SwiftUI holding a second
+                    // sheet it could never show ("only presenting a single sheet is supported", logged
+                    // on every update for the rest of the session; the stress walk, 2026-10-12).
+                    guard glanceSheet == nil, !showPermissionsSheet else { return }
                     settingsSheet = .root
                 } label: {
                     Image(systemName: "gear")
                 }
                 .tint(settings.accentColor.accent2)
+                .accessibilityLabel("Adhan Settings")
             }
         }
         .sheet(item: $settingsSheet) { target in
@@ -290,6 +429,17 @@ struct AdhanView: View {
         // On the List, not on the glance row: the row is lazy and sits at the bottom of the tab, so a
         // destination declared there does not exist until the row has scrolled on screen.
         .modifier(GlanceCalendarPushes(pushed: $pushedCalendar))
+        // The Control Center Qibla control, on the List for the same reason (`openQiblaFromControl`).
+        .onReceive(AppNavigation.shared.$pendingAdhan) { target in
+            guard case .qibla = target else { return }
+            // The tab switch (MainTabView) and this publish land in one update: with the tab not in
+            // the window yet, a sheet raised now is deferred by SwiftUI with a fault ("A sheet was
+            // presented but its presenter is not yet in the window"; the stress walk, 2026-10-13).
+            // The target stays pending, and `onAppear` opens it once the tab is in front (behind the
+            // launch cover, the reveal does).
+            guard isOnScreen, appRevealed else { return }
+            openQiblaFromControl()
+        }
         .sheet(item: $glanceSheet) { sheet in
             switch sheet {
             case .cityPrayerTimes:
@@ -305,12 +455,21 @@ struct AdhanView: View {
                     .smallMediumSheetPresentation()
             case let .qibla(bearing, distance):
                 QiblaSheet(bearing: bearing, distance: distance)
+            case .weather:
+                #if HAS_WEATHER
+                WeatherDetailSheet()
+                #else
+                EmptyView()
+                #endif
             }
+        }
+        .sheet(isPresented: $showPermissionsSheet, onDismiss: permissionsSheetDismissed) {
+            PermissionsSheet()
         }
         #if DEBUG
         // "-glanceAction <name>": fire a glance tile's action after the reveal, since tiles are not
         // tappable from simctl. Names: city, calculation, qibla, prayerCalendar, hijriCalendar,
-        // home, traveling.
+        // home, traveling, weather.
         .onAppear {
             let args = ProcessInfo.processInfo.arguments
             guard let i = args.firstIndex(of: "-glanceAction"), args.indices.contains(i + 1) else { return }
@@ -323,6 +482,7 @@ struct AdhanView: View {
                 case "hijriCalendar": return .hijriCalendar
                 case "home": return .homeLocation
                 case "traveling": return .travelingMode
+                case "weather": return .weather
                 default: return nil
                 }
             }()
@@ -342,22 +502,47 @@ struct AdhanView: View {
     /// A glance tile was tapped: sheets for the place, compass and settings screens, pushes for the
     /// two calendars (the same destinations the tab's own controls reach, so a tile is a shortcut,
     /// never a second copy of a screen).
+    /// A Control Center Qibla request that arrived while this tab was off screen or behind the launch
+    /// cover (see the `.onReceive` on the List): opened the moment the tab is in front.
+    private func openPendingQiblaIfAny() {
+        guard case .qibla = AppNavigation.shared.pendingAdhan else { return }
+        openQiblaFromControl()
+    }
+
+    /// The Control Center "Open Qibla" control (ControlIntents), answered on this always-mounted list:
+    /// the glance card that used to answer it is not on screen in Simple Mode, and as the last row of a
+    /// lazy list it was not always built in Full Mode either. Cleared on arrival, so the control works
+    /// a second time.
+    private func openQiblaFromControl() {
+        AppNavigation.shared.pendingAdhan = nil
+        let values = live.currentLocation.map {
+            GlanceCard.qiblaValues(latitude: $0.latitude, longitude: $0.longitude)
+        }
+        handleGlance(.qibla(bearing: values?.bearing, distance: values?.distance))
+    }
+
     private func handleGlance(_ action: GlanceAction) {
+        // One sheet at a time (see the gear button): a second request while one is up is dropped,
+        // the way a second tap on a door is dropped everywhere else in the app.
+        let sheetIsUp = glanceSheet != nil || settingsSheet != nil || showPermissionsSheet
         switch action {
         case .cityPrayerTimes:
-            glanceSheet = .cityPrayerTimes
+            if !sheetIsUp { glanceSheet = .cityPrayerTimes }
         case .homeLocation:
-            glanceSheet = .homeLocation
+            if !sheetIsUp { glanceSheet = .homeLocation }
         case let .qibla(bearing, distance):
-            glanceSheet = .qibla(bearing: bearing, distance: distance)
+            if !sheetIsUp { glanceSheet = .qibla(bearing: bearing, distance: distance) }
+        // One calendar at a time: flipping to the other mid-push swaps two isPresented flags on one stack.
         case .prayerCalendar:
-            pushedCalendar = .prayerCalendar
+            if pushedCalendar == nil { pushedCalendar = .prayerCalendar }
         case .hijriCalendar:
-            pushedCalendar = .hijriCalendar
+            if pushedCalendar == nil { pushedCalendar = .hijriCalendar }
         case .prayerCalculation:
-            settingsSheet = .prayerCalculation
+            if !sheetIsUp { settingsSheet = .prayerCalculation }
         case .travelingMode:
-            settingsSheet = .travelingMode
+            if !sheetIsUp { settingsSheet = .travelingMode }
+        case .weather:
+            if !sheetIsUp { glanceSheet = .weather }
         }
     }
 
@@ -387,6 +572,35 @@ struct AdhanView: View {
     }
 
     #if os(watchOS)
+    /// The watch's traveling-mode lead: plane, the mode's name and what it does, on a solid accent row.
+    private var watchTravelingRow: some View {
+        Section {
+            HStack(spacing: 8) {
+                Image(systemName: "airplane")
+                    .font(.system(size: 16, weight: .bold))
+                    .rotationEffect(.degrees(-30))
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Traveling Mode")
+                        .font(.footnote.weight(.bold))
+                    Text(settings.travelingShowFullPrayers ? "Showing full prayers" : "Qasr: shortened, combined")
+                        .font(.caption2)
+                        .opacity(0.9)
+                }
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            .listRowBackground(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(settings.accentColor.color)
+            )
+        }
+    }
+
     /// Date, city and Qibla in one row: the date and place stacked on the left, the compass on the right. Tap
     /// the compass to blow it up to the full width of the card, which is the only time it needs the room.
     private var watchPlaceCard: some View {
@@ -463,8 +677,83 @@ struct AdhanView: View {
     }
     #endif
 
-    private func prayerTimeRefresh(force: Bool) {
-        settings.requestNotificationAuthorization {
+    /// Location first, then the refresh, which is where the notification question is asked: one system
+    /// prompt at a time, and neither over the welcome (launch no longer asks for location).
+    ///
+    /// Since 2026-10-11 the permissions sheet stands in front of both prompts (PermissionsSheet.swift):
+    /// while a permission is unanswered and the sheet is due, it is presented instead and the refresh
+    /// runs when it closes; while its Not Now stands (a day), the tab refreshes WITHOUT raising either
+    /// system prompt, so the sheet is the one door to them. Snoozed is also what "-skipNotificationPrompt"
+    /// runs look like for notifications, which the existing DEBUG gate inside already handles.
+    private func askLocationThenRefresh() {
+        #if os(iOS)
+        if !permissionsSheetChecked {
+            permissionsSheetChecked = true
+            Task { @MainActor in
+                let due = await PermissionsSheet.shouldPresent(settings)
+                #if DEBUG
+                NSLog("PERMISSIONS SHEET due=%d onScreen=%d revealed=%d", due ? 1 : 0, isOnScreen ? 1 : 0, AppReveal.revealed ? 1 : 0)
+                #endif
+                if due {
+                    // A beat after the reveal, so the sheet rises over a settled tab rather than
+                    // mid-dissolve; the refresh follows its dismissal. `AppReveal.revealed` is the
+                    // live mirror of `appRevealed`: a captured environment value would be stale here.
+                    try? await Task.sleep(nanoseconds: 450_000_000)
+                    guard isOnScreen, AppReveal.revealed, !showPermissionsSheet,
+                          glanceSheet == nil, settingsSheet == nil else {
+                        // The tab left the screen in that beat (or the cover is still up, or another
+                        // sheet of this tab is up: a glance tile or a deep link in that beat raised one,
+                        // and two sheets on one List is the fault the gear button describes): the sheet
+                        // is offered again the next time the tab asks, and nothing prompts meanwhile.
+                        // Falling through to the refresh here raised the two bare system prompts over
+                        // whatever tab the user had gone to, and the sheet never came (checked once).
+                        permissionsSheetChecked = false
+                        return
+                    }
+                    showPermissionsSheet = true
+                } else {
+                    askLocationThenRefresh()
+                }
+            }
+            return
+        }
+        let now = Date()
+        let locationSnoozed = SimpleMode.isSnoozed(until: settings.locationAlertSnoozedUntil, now: now)
+        let notificationsSnoozed = SimpleMode.isSnoozed(until: settings.notificationAlertSnoozedUntil, now: now)
+        if locationSnoozed {
+            prayerTimeRefresh(force: false, askNotifications: !notificationsSnoozed)
+        } else {
+            settings.requestLocationIfUndetermined {
+                prayerTimeRefresh(force: false, askNotifications: !notificationsSnoozed)
+            }
+        }
+        #else
+        settings.requestLocationIfUndetermined {
+            prayerTimeRefresh(force: false)
+        }
+        #endif
+    }
+
+    #if os(iOS)
+    /// The permissions sheet closed, by its Done, its Not Now, or a swipe. Whatever is still unanswered
+    /// waits a day (the dialogs' snooze), then the usual refresh, which asks nothing while it waits.
+    private func permissionsSheetDismissed() {
+        let center = UNUserNotificationCenter.current()
+        Task { @MainActor in
+            let notifications = await center.notificationSettings().authorizationStatus
+            if Settings.locationManager.authorizationStatus == .notDetermined {
+                settings.snoozePermissionAlert(location: true)
+            }
+            if notifications == .notDetermined {
+                settings.snoozePermissionAlert(location: false)
+            }
+            askLocationThenRefresh()
+        }
+    }
+    #endif
+
+    private func prayerTimeRefresh(force: Bool, askNotifications: Bool = true) {
+        settings.requestNotificationAuthorization(askIfUndetermined: askNotifications) {
             settings.fetchPrayerTimes(force: force) {
                 // The one place the confirmation is raised: after the refresh has actually settled, a beat
                 // later so the list isn't still animating. `nextAlertToPresent` reads the standing flags, and
@@ -523,28 +812,38 @@ struct AdhanView: View {
         if settings.ownsAutomaticCalculationCheck, settings.calculationAutoChanged {
             return .calculationAutomaticChanged
         }
-        if !settings.locationNeverAskAgain && settings.showLocationAlert {
+        // A dismissed permission dialog waits a day before it asks again (`snoozePermissionAlert`).
+        let now = Date()
+        if !settings.locationNeverAskAgain && settings.showLocationAlert
+            && !SimpleMode.isSnoozed(until: settings.locationAlertSnoozedUntil, now: now) {
             return .locationAlert
         }
-        if !settings.notificationNeverAskAgain && settings.showNotificationAlert {
+        if !settings.notificationNeverAskAgain && settings.showNotificationAlert
+            && !SimpleMode.isSnoozed(until: settings.notificationAlertSnoozedUntil, now: now) {
             return .notificationAlert
         }
         return nil
     }
 
-    private var dialogTitle: String {
+    /// The automatic-change cards' copy lives in `Settings.AutoChangeCard`, shared with the settings
+    /// sheet's copy of these dialogs.
+    private var autoChangeCard: Settings.AutoChangeCard? {
         switch showAlert {
-        case .travelTurnOnAutomatic:
-            return "Traveling Mode Detected"
-        case .travelTurnOffAutomatic:
-            return "Traveling Mode Updated"
-        case .calculationAutomaticChanged:
-            return "Calculation Method Changed"
+        case .travelTurnOnAutomatic: return settings.autoChangeCard(.travelOn)
+        case .travelTurnOffAutomatic: return settings.autoChangeCard(.travelOff)
+        case .calculationAutomaticChanged: return settings.autoChangeCard(.calculation)
+        default: return nil
+        }
+    }
+
+    private var dialogTitle: String {
+        if let card = autoChangeCard { return card.title }
+        switch showAlert {
         case .locationAlert:
             return "Location Access Needed"
         case .notificationAlert:
             return "Notifications Off"
-        case .none:
+        default:
             return ""
         }
     }
@@ -552,48 +851,49 @@ struct AdhanView: View {
     @ViewBuilder
     private var alertActions: some View {
         switch showAlert {
+        // Accept first, put back second, no destructive red (see `AutoChangeCard`).
         case .travelTurnOnAutomatic:
-            Button("Override: Turn Off", role: .destructive) {
+            Button(settings.autoChangeCard(.travelOn).confirmTitle) {
+                settings.hapticFeedback()
+                withAnimation(.easeInOut) {
+                    settings.confirmTravelAutomaticChange()
+                }
+            }
+
+            Button(settings.autoChangeCard(.travelOn).overrideTitle) {
                 settings.hapticFeedback()
                 withAnimation(.easeInOut) {
                     settings.overrideTravelingMode(keepOn: false)
                 }
             }
 
-            Button("Confirm: Keep On") {
+        case .travelTurnOffAutomatic:
+            Button(settings.autoChangeCard(.travelOff).confirmTitle) {
                 settings.hapticFeedback()
                 withAnimation(.easeInOut) {
                     settings.confirmTravelAutomaticChange()
                 }
             }
 
-        case .travelTurnOffAutomatic:
-            Button("Override: Keep On", role: .destructive) {
+            Button(settings.autoChangeCard(.travelOff).overrideTitle) {
                 settings.hapticFeedback()
                 withAnimation(.easeInOut) {
                     settings.overrideTravelingMode(keepOn: true)
                 }
             }
 
-            Button("Confirm: Turn Off") {
-                settings.hapticFeedback()
-                withAnimation(.easeInOut) {
-                    settings.confirmTravelAutomaticChange()
-                }
-            }
-
         case .calculationAutomaticChanged:
-            Button("Override: Keep \(settings.calculationAutoPreviousMethod)", role: .destructive) {
-                settings.hapticFeedback()
-                withAnimation(.easeInOut) {
-                    settings.overrideAutomaticCalculationKeepingPrevious()
-                }
-            }
-
-            Button("Confirm: Use \(settings.calculationAutoDetectedMethod)") {
+            Button(settings.autoChangeCard(.calculation).confirmTitle) {
                 settings.hapticFeedback()
                 withAnimation(.easeInOut) {
                     settings.confirmAutomaticCalculationChange()
+                }
+            }
+
+            Button(settings.autoChangeCard(.calculation).overrideTitle) {
+                settings.hapticFeedback()
+                withAnimation(.easeInOut) {
+                    settings.overrideAutomaticCalculationKeepingPrevious()
                 }
             }
 
@@ -631,12 +931,8 @@ struct AdhanView: View {
     @ViewBuilder
     private var alertMessage: some View {
         switch showAlert {
-        case .travelTurnOnAutomatic:
-            Text(settings.automaticTravelMessage(turnOn: true))
-        case .travelTurnOffAutomatic:
-            Text(settings.automaticTravelMessage(turnOn: false))
-        case .calculationAutomaticChanged:
-            Text(settings.automaticCalculationMessage)
+        case .travelTurnOnAutomatic, .travelTurnOffAutomatic, .calculationAutomaticChanged:
+            Text(autoChangeCard?.message ?? "")
         case .locationAlert:
             Text("Please go to Settings and enable location services to accurately determine prayer times.")
         case .notificationAlert:
@@ -665,42 +961,59 @@ private struct DateAndLocationSection: View {
             HijriDateRow(hijriDate: hijriDate)
         }
 
-        CurrentLocationRow(showBigQibla: showBigQibla)
+        CurrentLocationRow(showBigQibla: showBigQibla, toggleQibla: toggleQibla)
             .animation(.easeInOut, value: showBigQibla)
             #if os(iOS)
-            .onTapGesture {
-                withAnimation {
-                    settings.hapticFeedback()
-                    showBigQibla.toggle()
-                }
-            }
+            .onTapGesture(perform: toggleQibla)
             #endif
+    }
+
+    private func toggleQibla() {
+        withAnimation {
+            settings.hapticFeedback()
+            showBigQibla.toggle()
+        }
     }
 }
 
 private struct HijriDateRow: View {
     @ObservedObject private var settings = Settings.shared
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let hijriDate: HijriDate
 
     var body: some View {
         #if os(iOS)
         NavigationLink(destination: LazyDestination { CalendarView() }) {
-            HStack(spacing: 12) {
-                AccentIconChip(systemImage: "calendar", size: 26)
+            Group {
+                // Side by side the two dates share one line, which at the accessibility sizes cut the
+                // English one to "Rabiʿ II 15, 1448..." and shrank the Arabic by half. There they stack.
+                if dynamicTypeSize.isAccessibilitySize {
+                    HStack(alignment: .top, spacing: 12) {
+                        AccentIconChip(systemImage: "calendar", size: 26)
 
-                Text(hijriDate.english)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundColor(.primary)
+                        VStack(alignment: .leading, spacing: 4) {
+                            englishDate
+                            arabicDate
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
 
-                Spacer()
+                        Spacer(minLength: 0)
+                    }
+                } else {
+                    HStack(spacing: 12) {
+                        AccentIconChip(systemImage: "calendar", size: 26)
 
-                Text(hijriDate.arabic)
-                    .font(.footnote)
-                    .foregroundColor(settings.accentColor.color)
+                        englishDate
+
+                        Spacer()
+
+                        arabicDate
+                    }
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                }
             }
-            .lineLimit(1)
-            .minimumScaleFactor(0.5)
             .contextMenu {
                 Text("Date Actions")
                     .foregroundStyle(.secondary)
@@ -727,6 +1040,20 @@ private struct HijriDateRow: View {
             .frame(maxWidth: .infinity, alignment: .center)
         #endif
     }
+
+    #if os(iOS)
+    private var englishDate: some View {
+        Text(hijriDate.english)
+            .font(.footnote.weight(.semibold))
+            .foregroundColor(.primary)
+    }
+
+    private var arabicDate: some View {
+        Text(hijriDate.arabic)
+            .font(.footnote)
+            .foregroundColor(settings.accentColor.color)
+    }
+    #endif
 }
 
 private struct CurrentLocationRow: View {
@@ -735,6 +1062,8 @@ private struct CurrentLocationRow: View {
     @ObservedObject private var live = LiveState.shared
 
     let showBigQibla: Bool
+    /// The row's tap (big compass on and off), handed down so VoiceOver can reach it from the compass.
+    var toggleQibla: () -> Void = {}
     @State private var showingPrayerTimesMap = false
     #if DEBUG
     @State private var showingWidgetGallery = false
@@ -766,6 +1095,14 @@ private struct CurrentLocationRow: View {
                 QiblaView(size: showBigQibla ? 100 : 50)
                     .padding(.leading)
                     .padding(.trailing, 4)
+                    // The whole row toggles the big compass, which VoiceOver could not find: the
+                    // compass is the control it announces.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Qibla Compass")
+                    .accessibilityValue(showBigQibla ? "Expanded" : "Collapsed")
+                    .accessibilityHint(showBigQibla ? "Shows the small compass" : "Shows the large compass and your coordinates")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { toggleQibla() }
             }
             .foregroundColor(.primary)
             .font(.subheadline)
@@ -902,24 +1239,61 @@ private struct CurrentLocationRow: View {
         #endif
     }
 
-    /// The device's actual latitude/longitude, shown under the location (city) only while the big Qibla
-    /// compass is expanded - a precise readout of "where you actually are" beneath the resolved place name.
+    /// The altitude the row draws: the live fix, or in DEBUG the `-fakeAltitude <metres>` override.
+    /// CoreLocation in the simulator reports no vertical accuracy, so the real reading never arrives
+    /// there and the row could not otherwise be screenshotted.
+    private var displayedAltitude: (metres: Double, accuracy: Double)? {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let index = args.firstIndex(of: "-fakeAltitude"), args.indices.contains(index + 1),
+           let metres = Double(args[index + 1]) {
+            return (metres, 10)
+        }
+        #endif
+        return live.currentAltitude
+    }
+
+    /// The device's actual latitude/longitude, and its elevation when the fix carries one, shown under
+    /// the location (city) only while the big Qibla compass is expanded - a precise readout of "where
+    /// you actually are" beneath the resolved place name.
+    ///
+    /// The elevation is a SECOND line rather than a third item on the first: the coordinate pair already
+    /// fills the row's width at `caption2`, and appending to it pushed the whole thing into
+    /// `minimumScaleFactor` territory. It appears only when CoreLocation reports a usable vertical
+    /// reading (Abu, 2026-09-19) - see `LiveState.currentAltitude`.
     @ViewBuilder
     private var coordinatesLabel: some View {
         if showBigQibla,
            let loc = live.currentLocation,
            loc.latitude != 1000, loc.longitude != 1000 {
-            HStack(spacing: 6) {
-                Image(systemName: "globe")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(settings.accentColor.color)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Image(systemName: "globe")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(settings.accentColor.color)
 
-                Text(formatCoordinates(latitude: loc.latitude, longitude: loc.longitude))
-                    .font(.caption2)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
+                    Text(formatCoordinates(latitude: loc.latitude, longitude: loc.longitude))
+                        .font(.caption2)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                }
+
+                if let altitude = displayedAltitude {
+                    HStack(spacing: 6) {
+                        Image(systemName: "mountain.2.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(settings.accentColor.color)
+
+                        Text(formatElevation(metres: altitude.metres))
+                            .font(.caption2)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                    }
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -933,6 +1307,15 @@ private struct CurrentLocationRow: View {
                     UIPasteboard.general.string = "\(loc.latitude), \(loc.longitude)"
                 } label: {
                     Label("Copy Coordinates", systemImage: "doc.on.doc")
+                }
+
+                if let altitude = displayedAltitude {
+                    Button {
+                        settings.hapticFeedback()
+                        UIPasteboard.general.string = formatElevation(metres: altitude.metres)
+                    } label: {
+                        Label("Copy Elevation", systemImage: "mountain.2")
+                    }
                 }
             }
             #endif
@@ -950,6 +1333,31 @@ func formatCoordinates(latitude: Double, longitude: Double) -> String {
     let latDir = latitude >= 0 ? "N" : "S"
     let lonDir = longitude >= 0 ? "E" : "W"
     return String(format: "%.4f° %@, %.4f° %@", abs(latitude), latDir, abs(longitude), lonDir)
+}
+
+/// An altitude in metres as e.g. "1,204 ft · 367 m above sea level". Both units, feet first: the one
+/// other distance this app prints (the Kaaba, in `QiblaView`) is in miles, so feet is the unit that
+/// matches it, and the metric value is what CoreLocation actually measured.
+///
+/// Rounded to whole units - GPS altitude is good to some tens of metres at best, so decimals here
+/// would be invented precision. A negative reading (below sea level, the Dead Sea and the like) is
+/// printed as "below sea level" rather than with a minus sign.
+private let elevationNumberFormatter: NumberFormatter = {
+    let number = NumberFormatter()
+    number.numberStyle = .decimal
+    number.maximumFractionDigits = 0
+    return number
+}()
+
+func formatElevation(metres: Double) -> String {
+    let feet = metres * 3.280839895
+    // One formatter (Phase 10.8): this ran per render of the expanded compass's location row, where
+    // the GPS burst publishes a fix about once a second.
+    let number = elevationNumberFormatter
+    let feetText = number.string(from: NSNumber(value: abs(feet).rounded())) ?? "0"
+    let metresText = number.string(from: NSNumber(value: abs(metres).rounded())) ?? "0"
+    let suffix = metres < 0 ? "below sea level" : "above sea level"
+    return "\(feetText) ft · \(metresText) m \(suffix)"
 }
 
 
@@ -973,29 +1381,50 @@ private struct GlanceCalendarPushes: ViewModifier {
 
     func body(content: Content) -> some View {
         if #available(iOS 16.0, *) {
+            // Lazy (see `PushDestination`): built eagerly, both calendars were constructed on every
+            // pass of the Adhan tab and laid out at launch, though neither is on screen until a tap.
             content
-                .navigationDestination(isPresented: binding(.prayerCalendar)) { PrayerCalendarView() }
-                .navigationDestination(isPresented: binding(.hijriCalendar)) { CalendarView() }
+                .navigationDestination(isPresented: binding(.prayerCalendar)) { LazyDestination { PrayerCalendarView() } }
+                .navigationDestination(isPresented: binding(.hijriCalendar)) { LazyDestination { CalendarView() } }
         } else {
-            content.background(
-                ZStack {
-                    NavigationLink(isActive: binding(.prayerCalendar)) {
-                        PrayerCalendarView()
-                    } label: { EmptyView() }
-                    NavigationLink(isActive: binding(.hijriCalendar)) {
-                        CalendarView()
-                    } label: { EmptyView() }
-                }
-                .hidden()
-            )
+            content.background(GlanceCalendarLegacyLinks(pushed: $pushed))
         }
     }
 
     private func binding(_ target: GlancePush) -> Binding<Bool> {
+        GlancePush.binding(target, in: $pushed)
+    }
+}
+
+private extension GlancePush {
+    /// True while `target` is the pushed calendar; a pop clears it, only if it is still the one shown.
+    static func binding(_ target: GlancePush, in pushed: Binding<GlancePush?>) -> Binding<Bool> {
         Binding(
-            get: { pushed == target },
-            set: { active in if !active, pushed == target { pushed = nil } }
+            get: { pushed.wrappedValue == target },
+            set: { active in if !active, pushed.wrappedValue == target { pushed.wrappedValue = nil } }
         )
+    }
+}
+
+/// The iOS 15 half of `GlanceCalendarPushes`: hidden `isActive` links, since a `NavigationView` ignores
+/// `navigationDestination`. Its own view rather than a `ZStack` in the modifier's `else`, because a
+/// several-child builder in that dead branch warned once Al-Islam's floor moved to iOS 16 (2026-10-09),
+/// and marked deprecated there so the links' own iOS 16 deprecation stays inside it. Kept because
+/// Al-Adhan still ships this file on iOS 15.
+@available(iOS, deprecated: 16.0, message: "iOS 15 only; iOS 16 pushes through navigationDestination")
+private struct GlanceCalendarLegacyLinks: View {
+    @Binding var pushed: GlancePush?
+
+    var body: some View {
+        ZStack {
+            NavigationLink(isActive: GlancePush.binding(.prayerCalendar, in: $pushed)) {
+                PrayerCalendarView()
+            } label: { EmptyView() }
+            NavigationLink(isActive: GlancePush.binding(.hijriCalendar, in: $pushed)) {
+                CalendarView()
+            } label: { EmptyView() }
+        }
+        .hidden()
     }
 }
 
@@ -1003,12 +1432,14 @@ private enum GlanceSheet: Identifiable {
     case cityPrayerTimes
     case homeLocation
     case qibla(bearing: String?, distance: String?)
+    case weather
 
     var id: String {
         switch self {
         case .cityPrayerTimes: return "city"
         case .homeLocation: return "home"
         case .qibla: return "qibla"
+        case .weather: return "weather"
         }
     }
 }

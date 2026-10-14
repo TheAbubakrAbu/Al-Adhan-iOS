@@ -152,13 +152,6 @@ enum AdhanWidgetDateFormatting {
         return formatter
     }()
 
-    /// "Sep 5", for the inline family.
-    static let gregorianShortDayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.setLocalizedDateFormatFromTemplate("dMMM")
-        return formatter
-    }()
-
     /// "3:45 PM" (or 15:45 under a 24-hour clock).
     static let shortTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -174,7 +167,7 @@ struct PrayersProvider: TimelineProvider {
 
     // MARK: Per-process memo
     //
-    // Every Adhan kind (37 on iOS, 2 on the watch) has its own provider, and after a reload WidgetKit
+    // Every Adhan kind (`Settings.AdhanWidgetKind`, 37 on iOS; 2 on the watch) has its own provider, and after a reload WidgetKit
     // asks each placed one for a timeline in one burst - each of which re-seeded Settings from the App
     // Group, re-ran the prayer computation and rebuilt the boundary timeline. The inputs are the same
     // for all of them, so the first build is cached and the rest return it. Keyed on every App Group
@@ -194,6 +187,14 @@ struct PrayersProvider: TimelineProvider {
         var customAngles: [Double?]
         var skyGradients: String?
         var showSkyScene: Bool
+        // Read only in `Settings.init` before 2026-09-28, so a reused process kept the old rule and
+        // names; and the traveling "View Full Prayers" flag was never mirrored at all (P10, P11).
+        var highLatitudeRule: String?
+        var customPrayerNames: [String: String]
+        var travelingShowFullPrayers: Bool
+        // The sky's weather (SkyWeather.swift): the app's cached reading and its switch.
+        var weather: Data?
+        var showsWeather: Bool
     }
     private static var memo: (inputs: Inputs, builtAt: Date, entries: [PrayersEntry])?
     private static let memoMaxAge: TimeInterval = 5 * 60
@@ -212,8 +213,25 @@ struct PrayersProvider: TimelineProvider {
             offsets: Settings.prayerOffsetKeys.map { store?.integer(forKey: $0) ?? 0 },
             customAngles: ["customFajrAngle", "customIshaAngle"].map { store?.object(forKey: $0) as? Double },
             skyGradients: store?.string(forKey: "skyGradients"),
-            showSkyScene: store?.object(forKey: "showSkyScene") as? Bool ?? true
+            showSkyScene: store?.object(forKey: "showSkyScene") as? Bool ?? true,
+            highLatitudeRule: store?.string(forKey: "highLatitudeRule"),
+            customPrayerNames: (store?.dictionary(forKey: "customPrayerNames") as? [String: String]) ?? [:],
+            travelingShowFullPrayers: store?.bool(forKey: "travelingShowFullPrayers") ?? false,
+            weather: store?.data(forKey: SkyWeather.storageKey),
+            showsWeather: store?.bool(forKey: "skyShowsWeather") ?? false
         )
+    }
+
+    /// The app's last Apple Weather reading, while its switch is on and it is fresh. A widget never
+    /// asks Apple itself: the app's half-hourly fetch (and its background location wakes) keep this
+    /// current, which is what keeps the family inside the free allowance.
+    private func cachedWeather() -> SkyWeather? {
+        #if HAS_WEATHER
+        guard store?.bool(forKey: "skyShowsWeather") == true else { return nil }
+        return SkyWeather.freshCached(in: store)
+        #else
+        return nil
+        #endif
     }
 
     /// How long before the next prayer the countdown complication's bar goes red ("not much time
@@ -247,7 +265,10 @@ struct PrayersProvider: TimelineProvider {
         // .atEnd also asks for a rebuild once the last pre-built entry is showing, so the chain never
         // stalls; the pre-built boundary entries below are what keep the widget exact when WidgetKit
         // defers that reload (background refresh budget, Low Power Mode).
-        completion(Timeline(entries: entries, policy: entries.count > 1 ? .atEnd : .after(Date().addingTimeInterval(30 * 60))))
+        // Without prayers (no location yet) the timeline is only the date turning at midnight: keep
+        // asking every half hour until there is a location to build the day from.
+        let hasPrayers = entries.first?.fullPrayers.isEmpty == false
+        completion(Timeline(entries: entries, policy: hasPrayers && entries.count > 1 ? .atEnd : .after(Date().addingTimeInterval(30 * 60))))
     }
 
     /// The memoized timeline (see `Inputs`). The whole build runs on the main queue: WidgetKit calls
@@ -278,7 +299,13 @@ struct PrayersProvider: TimelineProvider {
     /// Pre-built entries flip on time with no reload at all - reloads only refresh the underlying data.
     private func makeTimelineEntriesOnMain() -> [PrayersEntry] {
         let first = makeEntryOnMain()
-        guard !first.fullPrayers.isEmpty else { return [first] }
+        guard !first.fullPrayers.isEmpty else {
+            // No prayers to flip on, but the Hijri date widgets read `entry.date`: one more entry at
+            // midnight, or they showed yesterday until WidgetKit next granted a reload.
+            let calendar = Calendar.current
+            guard let midnight = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: first.date)) else { return [first] }
+            return [first, emptyEntry(accent: first.accentColor, date: midnight)]
+        }
 
         let now = first.date
         let horizon = now.addingTimeInterval(30 * 60 * 60)
@@ -305,6 +332,13 @@ struct PrayersProvider: TimelineProvider {
             guard let next = Calendar.current.date(byAdding: .day, value: 1, to: midnight) else { break }
             midnight = next
         }
+        // ...plus the moment the cached weather goes stale (`SkyWeather.freshFor` after it was read): the
+        // entries past it paint a plain sky, as the app's card does, instead of carrying the evening's
+        // rain into the morning (a widget never fetches, and an unopened app writes no newer reading).
+        if let expiry = first.weather.map({ $0.fetchedAt.addingTimeInterval(SkyWeather.freshFor) }),
+           expiry > now, expiry <= horizon {
+            flipTimes.append(expiry)
+        }
         #if os(watchOS)
         // ...plus one entry shortly BEFORE each boundary, where the countdown complication's bar
         // turns red (`lowTimeWarningWindow`). Watch only: nothing on iOS reads it (every iOS
@@ -317,18 +351,28 @@ struct PrayersProvider: TimelineProvider {
         }
         #endif
 
+        // The weather an entry paints: the app's cached reading while the entry's moment is still inside
+        // its freshness (3 h), none after. One reading used to ride every entry out to the 30-hour
+        // horizon, so a phone left closed overnight showed the evening's rain and temperature over Fajr
+        // while the app's own card had long dropped them.
+        func weather(at moment: Date) -> SkyWeather? {
+            guard let reading = first.weather, reading.isFresh(at: moment) else { return nil }
+            return reading
+        }
+
         // The sky gradient per current prayer, resolved once here rather than by every archived entry
         // view (`Settings.skyGradientColors` decodes the palette overrides behind a memo, but the
-        // gradient widget and the complication each called it once per entry per kind).
+        // gradient widget and the complication each called it once per entry per kind). Keyed on
+        // whether the weather still tints it: the same period paints plain once the reading is stale.
         var skyColorsByKey: [String: [Color]] = [:]
-        func skyColors(forPeriod period: String?) -> [Color] {
-            let key = SkyPalette.editableKey(for: period)
+        func skyColors(forPeriod period: String?, weather: SkyWeather?) -> [Color] {
+            let key = SkyPalette.editableKey(for: period) + (weather == nil ? "" : "|weather")
             if let cached = skyColorsByKey[key] { return cached }
-            let colors = settings.skyGradientColors(forPrayer: period)
+            let colors = settings.skyGradientColors(forPrayer: period, weather: weather)
             skyColorsByKey[key] = colors
             return colors
         }
-        skyColorsByKey[SkyPalette.editableKey(for: first.skyPeriod)] = first.skyColors
+        skyColorsByKey[SkyPalette.editableKey(for: first.skyPeriod) + (first.weather == nil ? "" : "|weather")] = first.skyColors
 
         // The sky period per entry moment, off the full set (see `skyBoundaries`). Resolved from the same
         // list the flip instants came from rather than by re-deriving prayer tables per entry.
@@ -359,6 +403,7 @@ struct PrayersProvider: TimelineProvider {
                   let next = boundaries.first(where: { $0.time > t }) else { continue }
             let table = tables(for: t)
             let period = skyPeriod(at: t)
+            let weatherAt = weather(at: t)
             entries.append(PrayersEntry(
                 date:                       t,
                 accentColor:                first.accentColor,
@@ -370,13 +415,18 @@ struct PrayersProvider: TimelineProvider {
                 hijriOffset:                first.hijriOffset,
                 switchHijriDateAtMaghrib:   first.switchHijriDateAtMaghrib,
                 skyPeriod:                  period,
-                skyColors:                  skyColors(forPeriod: period)
+                skyColors:                  skyColors(forPeriod: period, weather: weatherAt),
+                weather:                    weatherAt
             ))
         }
         return entries
     }
 
-    private func makeEntryOnMain() -> PrayersEntry {
+    /// Mirrors the app's App Group values into this process's `Settings` before any prayer computation.
+    /// The widgets' timelines AND the Control Center control read prayer times here; a control read
+    /// without this answered from whatever the extension's singleton held at init (the old city, the
+    /// old method, no manual offsets), so it could disagree with the tiles beside it.
+    func seedSettingsFromAppGroup() {
         // The raw bytes, not a decoded `Prayers`: assigning `settings.prayers` re-encoded what was just
         // decoded (its setter persists through `prayersData`). `prayers` decodes lazily on first read.
         if let data = store?.data(forKey: "prayersData"), !data.isEmpty, settings.prayersData != data {
@@ -395,6 +445,13 @@ struct PrayersProvider: TimelineProvider {
         settings.prayerCalculation = store?.string(forKey: "prayerCalculation") ?? "Muslim World League"
         settings.hijriOffset = store?.integer(forKey: "hijriOffset") ?? 0
         settings.switchHijriDateAtMaghrib = store?.bool(forKey: "switchHijriDateAtMaghrib") ?? false
+        // Re-seeded on every build (their didSets do nothing in an extension): read once in
+        // `Settings.init`, a reused process built tomorrow's table with the old high-latitude rule
+        // and the old prayer spellings (P11).
+        let rule = store?.string(forKey: "highLatitudeRule") ?? Settings.automaticHighLatitudeRule
+        if settings.highLatitudeRule != rule { settings.highLatitudeRule = rule }
+        let names = (store?.dictionary(forKey: "customPrayerNames") as? [String: String]) ?? [:]
+        if settings.customPrayerNames != names { settings.customPrayerNames = names }
 
         // The user's manual offsets, mirrored from the app. Written to this process's standard
         // defaults (where @AppStorage reads) rather than assigned through the properties - each
@@ -415,7 +472,16 @@ struct PrayersProvider: TimelineProvider {
                 extensionDefaults.set(mirrored, forKey: key)
             }
         }
+        // Traveling mode's "View Full Prayers" (P10): past Asr the app shows "Asr" while the widgets,
+        // never told, said "Dhuhr/Asr". Same mirror as the offsets (it is @AppStorage here too).
+        let fullPrayers = store?.bool(forKey: "travelingShowFullPrayers") ?? false
+        if extensionDefaults.bool(forKey: "travelingShowFullPrayers") != fullPrayers {
+            extensionDefaults.set(fullPrayers, forKey: "travelingShowFullPrayers")
+        }
+    }
 
+    private func makeEntryOnMain() -> PrayersEntry {
+        seedSettingsFromAppGroup()
         settings.fetchPrayerTimes()
 
         guard let obj = settings.prayers else {
@@ -424,6 +490,7 @@ struct PrayersProvider: TimelineProvider {
 
         let now = Date()
         let skyPeriod = settings.skyPeriodName(at: now)
+        let weather = cachedWeather()
 
         return PrayersEntry(
             date:                       now,
@@ -438,7 +505,8 @@ struct PrayersProvider: TimelineProvider {
             // The SKY period, not `currentPrayer`: while traveling the latter is "Maghrib/Isha" from
             // sunset until dawn, which held the home screen on Maghrib's colors all night.
             skyPeriod:                  skyPeriod,
-            skyColors:                  settings.skyGradientColors(forPrayer: skyPeriod)
+            skyColors:                  settings.skyGradientColors(forPrayer: skyPeriod, weather: weather),
+            weather:                    weather
         )
     }
 
@@ -477,14 +545,16 @@ struct PrayersProvider: TimelineProvider {
         )
     }
 
-    private func emptyEntry(accent: AccentColor) -> PrayersEntry {
-        .init(date: Date(),
+    private func emptyEntry(accent: AccentColor, date: Date = Date()) -> PrayersEntry {
+        // The user's Hijri day adjustment still applies with no location: the date widgets are the
+        // one thing an entry without prayers can show, and a zero here put them a day off.
+        .init(date: date,
               accentColor: accent,
               currentCity: "",
               prayers: [], fullPrayers: [],
               currentPrayer: nil, nextPrayer: nil,
-              hijriOffset: 0,
-              switchHijriDateAtMaghrib: false,
+              hijriOffset: settings.hijriOffset,
+              switchHijriDateAtMaghrib: settings.switchHijriDateAtMaghrib,
               skyPeriod: nil,
               skyColors: settings.skyGradientColors(forPrayer: nil))
     }
@@ -504,6 +574,11 @@ struct PrayersEntry: TimelineEntry {
     /// `currentPrayer`'s traveling pair (`Settings.skyPeriodName(at:)`). It is what the app's card uses,
     /// so the two skies turn together; it also keys the star field's night fade.
     let skyPeriod: String?
-    /// The sky gradient for `skyPeriod`, resolved by the provider (see `makeTimelineEntriesOnMain`).
+    /// The sky gradient for `skyPeriod`, resolved by the provider (see `makeTimelineEntriesOnMain`),
+    /// already greyed by `weather` when there is one.
     let skyColors: [Color]
+    /// The app's last Apple Weather reading, while fresh and switched on (SkyWeather.swift): the sky
+    /// layouts draw its clouds or rain and print its temperature beside the city. Nil paints the
+    /// plain sky, exactly as before the weather existed.
+    var weather: SkyWeather? = nil
 }

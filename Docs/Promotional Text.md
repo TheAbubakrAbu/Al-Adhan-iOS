@@ -1,1 +1,1 @@
-Now with a prayer tracker with streaks, a living sky over your prayer times, and on-device AI search for duas and adhkar. Free, ad free, and fully private.
+New: a 3D moon and a skyline on your prayer sky, "Did you pray?" from any prayer notification, Simple Mode, and more accurate prayer times.

@@ -131,10 +131,13 @@ struct SolarArcGraph: View {
             // mid-grey on the standard background.
             if showsScene {
                 let horizonY = yPosition(of: day.horizon, in: rect)
+                // Lit from the sun where the entry draws it, as on the app's card; a widget never
+                // animates, so the sun is simply up or down.
                 SkySceneView(horizonY: horizonY,
-                             color: skyStyle
-                                ? SkyScene.silhouette(overSky: entry.skyColors, at: horizonY / max(rect.height, 1))
-                                : Color.secondary.opacity(0.45))
+                             tint: skyStyle
+                                ? SkyScene.tint(overSky: entry.skyColors, at: horizonY / max(rect.height, 1))
+                                : .flat(Color.secondary.opacity(0.45)),
+                             light: SkylineLight(source: point(at: sunFraction, day: day, in: rect), day: isUp ? 1 : 0))
             }
 
             ForEach(dots) { prayer in
@@ -440,7 +443,7 @@ struct SolarMoonBoardEntryView: View {
 // MARK: - The six widgets (three layouts, each with its sky twin)
 
 struct SolarArcWidget: Widget {
-    let kind: String = "SolarArcWidget"
+    let kind: String = AdhanWidgetKind.SolarArcWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -455,7 +458,7 @@ struct SolarArcWidget: Widget {
 
 /// The Solar Arc widget, unchanged, over the current prayer's sky gradient.
 struct SolarArcSkyWidget: Widget {
-    let kind: String = "SolarArcSkyWidget"
+    let kind: String = AdhanWidgetKind.SolarArcSkyWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -469,7 +472,7 @@ struct SolarArcSkyWidget: Widget {
 }
 
 struct MoonWidget: Widget {
-    let kind: String = "MoonWidget"
+    let kind: String = AdhanWidgetKind.MoonWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -484,7 +487,7 @@ struct MoonWidget: Widget {
 
 /// The Moon Phase widget, unchanged, over the current prayer's sky gradient.
 struct MoonSkyWidget: Widget {
-    let kind: String = "MoonSkyWidget"
+    let kind: String = AdhanWidgetKind.MoonSkyWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -498,7 +501,7 @@ struct MoonSkyWidget: Widget {
 }
 
 struct SolarMoonWidget: Widget {
-    let kind: String = "SolarMoonWidget"
+    let kind: String = AdhanWidgetKind.SolarMoonWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
@@ -513,7 +516,7 @@ struct SolarMoonWidget: Widget {
 
 /// The Day & Night board, unchanged, over the current prayer's sky gradient.
 struct SolarMoonSkyWidget: Widget {
-    let kind: String = "SolarMoonSkyWidget"
+    let kind: String = AdhanWidgetKind.SolarMoonSkyWidget.rawValue
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in

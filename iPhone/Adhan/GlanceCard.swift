@@ -13,77 +13,192 @@ struct GlanceCard: View {
     @ObservedObject private var settings = Settings.shared
     /// Prayer times and the location publish from `LiveState`, not `Settings` (see its comment).
     @ObservedObject private var live = LiveState.shared
+    #if HAS_WEATHER
+    @ObservedObject private var weatherStore = SkyWeatherStore.shared
+    #endif
 
     /// Every tile is a button (Abu, 2026-09-04: "when you click on certain ones have it do a certain
     /// thing"); the card only names what was tapped and the Adhan tab decides what opens.
     var onSelect: (GlanceAction) -> Void = { _ in }
 
-    private static let kaaba = CLLocation(latitude: 21.4225, longitude: 39.8262)
+    /// The one Kaaba coordinate, shared with `QiblaView` and with the bearing `Qibla(coordinates:)`
+    /// computes from. This was a third independently-truncated copy.
+    private static let kaaba = CLLocation(latitude: QiblaView.kaabaCoordinate.latitude,
+                                          longitude: QiblaView.kaabaCoordinate.longitude)
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 10, alignment: .top),
-        GridItem(.flexible(), spacing: 10, alignment: .top)
-    ]
+    /// Two columns, or one at the accessibility text sizes: half a row left "CURRENT..." over "San".
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 10, alignment: .top),
+              count: dynamicTypeSize.isAccessibilitySize ? 1 : 2)
+    }
 
     var body: some View {
         let _ = RenderCounter.hit("GlanceCard")
         let accent = settings.accentColor.color
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
-            ForEach(tiles) { tile in
-                GlanceTile(tile: tile, accent: accent, onSelect: onSelect)
-                    .equatable()
+        // One VStack of per-group blocks rather than one grid with Sections: a group with an ODD
+        // number of tiles has to end in a full-width tile, and a LazyVGrid cell cannot span columns
+        // (Abu, 2026-10-05: "it shouldnt be like that thats not how it is on iphone theres full
+        // rows"). Each group lays its even tiles out in the grid and draws a lone last one beneath
+        // it at full width, so no row is ever left half empty.
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(groups) { group in
+                groupHeader(group)
+
+                let paired = pairedTiles(group.tiles)
+                if !paired.isEmpty {
+                    // Not lazy (`SummaryTileGrid`): a lazy grid in a List row can answer a different
+                    // height on each self-sizing pass, which iOS 26 traps on.
+                    SummaryTileGrid(columns: columns.count, alignment: .top) {
+                        ForEach(paired) { tile in
+                            GlanceTile(tile: tile, accent: accent, onSelect: onSelect)
+                                .equatable()
+                        }
+                    }
+                }
+
+                if let lone = loneTile(group.tiles) {
+                    // Full width: nothing to stay level with, so the value takes the lines it needs
+                    // instead of always reserving two (which left this tile visibly over-tall).
+                    GlanceTile(tile: lone, accent: accent, onSelect: onSelect, fullWidth: true)
+                        .equatable()
+                }
             }
         }
         .padding(.vertical, 2)
+        // The Control Center "Open Qibla" control used to be answered here (2026-10-07). AdhanView
+        // answers it now, through `qiblaValues`: Simple Mode does not mount this card at all, and as the
+        // last row of a lazy list it was not always built in Full Mode either (2026-10-10).
+    }
+
+    /// The Qibla tile's two values for a stored location: the bearing ("58° ENE", or "You are here"
+    /// within a kilometre of the Kaaba) and the distance. Shared with AdhanView, which opens the same
+    /// compass sheet for the Control Center control.
+    static func qiblaValues(latitude: Double, longitude: Double) -> (bearing: String?, distance: String?) {
+        guard latitude != 1000, longitude != 1000 else { return (nil, nil) }
+        let meters = CLLocation(latitude: latitude, longitude: longitude).distance(from: kaaba)
+        guard meters > atKaabaRadius else { return ("You are here", "At the Kaaba") }
+        let direction = Qibla(coordinates: Coordinates(latitude: latitude, longitude: longitude)).direction
+        return (String(format: "%.0f° %@", direction, compassPoint(direction)), distanceText(meters))
+    }
+
+    /// The tiles that fill complete rows: everything but a trailing odd one.
+    ///
+    /// At the accessibility sizes the grid is ONE column, so every tile is already a full row and
+    /// nothing is left over - the split only applies to the two-column layout.
+    private func pairedTiles(_ tiles: [GlanceItem]) -> [GlanceItem] {
+        guard !dynamicTypeSize.isAccessibilitySize, tiles.count % 2 == 1 else { return tiles }
+        return Array(tiles.dropLast())
+    }
+
+    /// The trailing tile that would otherwise sit alone in the left column, drawn full width instead.
+    private func loneTile(_ tiles: [GlanceItem]) -> GlanceItem? {
+        guard !dynamicTypeSize.isAccessibilitySize, tiles.count % 2 == 1 else { return nil }
+        return tiles.last
+    }
+
+    /// A group's name over its tiles: a step below the section's "AT A GLANCE", and a heading for
+    /// VoiceOver's rotor. Sentence case and primary weight, so it reads as a level of its own rather
+    /// than one more all-caps eyebrow among the tiles' own.
+    private func groupHeader(_ group: GlanceGroup) -> some View {
+        Text(group.title)
+            .font(.footnote.weight(.semibold))
+            .foregroundColor(.primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 4)
+            // The second group sits a little apart from the first one's last row.
+            .padding(.top, group.id == GlanceGroup.here ? 0 : 6)
+            .accessibilityAddTraits(.isHeader)
     }
 
     // MARK: - Tiles
 
-    private var tiles: [GlanceItem] {
-        var items: [GlanceItem] = []
-
-        items.append(.init(icon: "location.fill", title: "Current Location",
-                           value: live.currentLocation?.city ?? "Unavailable", action: .cityPrayerTimes))
-
-        items.append(.init(icon: "function", title: "Prayer Calculation", value: calculationSummary,
-                           action: .prayerCalculation))
-
+    /// Twelve equal tiles in one wall had no order to them (the design review, 2026-09-26), so they
+    /// come in two groups of pairs: where you are (the city and its clock, the Qibla and its distance,
+    /// home and how far it is) and today (the sun and the fast, the night and the moon, the next date
+    /// and the method the day's times come from). A tile that cannot be computed is still dropped.
+    private var groups: [GlanceGroup] {
         let qibla = qiblaSummary
         let makkah = distanceToMakkah
+
+        var here: [GlanceItem] = []
+        here.append(.init(icon: "location.fill", title: "Current Location",
+                          value: live.currentLocation?.city ?? "Unavailable", action: .cityPrayerTimes))
+        here.append(.init(icon: "clock.fill", title: "Time Zone", value: timeZoneSummary, action: .cityPrayerTimes))
         if let qibla {
-            items.append(.init(icon: "location.north.line.fill", title: "Qibla", value: qibla,
-                               iconRotation: qiblaBearing, action: .qibla(bearing: qibla, distance: makkah)))
+            here.append(.init(icon: "location.north.line.fill", title: "Qibla", value: qibla,
+                              iconRotation: qiblaBearing, action: .qibla(bearing: qibla, distance: makkah)))
         }
         if let makkah {
-            items.append(.init(icon: "building.columns.fill", title: "Distance to Makkah", value: makkah,
-                               action: .qibla(bearing: qibla, distance: makkah)))
-        }
-        if let daylight = daylightSummary {
-            items.append(.init(icon: "sun.max.fill", title: "Daylight", value: daylight, action: .prayerCalendar))
-        }
-        if let fast = fastingWindow {
-            items.append(.init(icon: "fork.knife", title: "Fasting Window", value: fast, action: .prayerCalendar))
-        }
-        if let night = nightSummary {
-            items.append(.init(icon: "moon.zzz.fill", title: "Night", value: night, action: .prayerCalendar))
-        }
-
-        items.append(.init(icon: "moon.stars.fill", title: "Moon", value: moonSummary, showsMoonPhase: true,
-                           action: .hijriCalendar))
-
-        if let event = nextEventSummary {
-            items.append(.init(icon: "calendar", title: "Next Islamic Date", value: event, action: .hijriCalendar))
+            here.append(.init(icon: "building.columns.fill", title: "Distance to Makkah", value: makkah,
+                              action: .qibla(bearing: qibla, distance: makkah)))
         }
         if let home = settings.homeLocation {
-            items.append(.init(icon: "house.fill", title: "Home Location", value: home.city, action: .homeLocation))
+            here.append(.init(icon: "house.fill", title: "Home Location", value: home.city, action: .homeLocation))
             if let travel = travelSummary {
-                items.append(.init(icon: "airplane", title: "Distance From Home", value: travel,
-                                   action: .travelingMode))
+                here.append(.init(icon: "airplane", title: "Distance From Home", value: travel,
+                                  action: .travelingMode))
             }
         }
 
-        items.append(.init(icon: "clock.fill", title: "Time Zone", value: timeZoneSummary, action: .cityPrayerTimes))
-        return items
+        var today: [GlanceItem] = []
+        if let daylight = daylightSummary {
+            today.append(.init(icon: "sun.max.fill", title: "Daylight", value: daylight, action: .prayerCalendar))
+        }
+        if let fast = fastingWindow {
+            today.append(.init(icon: "fork.knife", title: "Fasting Window", value: fast, action: .prayerCalendar))
+        }
+        if let night = nightSummary {
+            today.append(.init(icon: "moon.zzz.fill", title: "Night", value: night, action: .prayerCalendar))
+        }
+        today.append(.init(icon: "moon.stars.fill", title: "Moon", value: moonSummary, showsMoonPhase: true,
+                           action: .hijriCalendar))
+        if let event = nextEventSummary {
+            today.append(.init(icon: "calendar", title: "Next Islamic Date", value: event, action: .hijriCalendar))
+        }
+        today.append(.init(icon: "function", title: "Prayer Calculation", value: calculationSummary,
+                           action: .prayerCalculation))
+
+        var groups = [
+            GlanceGroup(id: GlanceGroup.here, title: "Here", tiles: here),
+            GlanceGroup(id: GlanceGroup.today, title: "Today", tiles: today)
+        ]
+        // The sky's weather, while the switch is on and the reading is fresh (SkyWeather.swift):
+        // the temperature, the conditions, and the numbers under them. Every tile opens the full
+        // reading. Nothing here is computed; it is the one group that comes from the network.
+        if let weather = freshWeather {
+            groups.append(GlanceGroup(id: GlanceGroup.weather, title: "Weather", tiles: weatherTiles(weather)))
+        }
+        return groups
+    }
+
+    private var freshWeather: SkyWeather? {
+        #if HAS_WEATHER
+        return weatherStore.freshWeather
+        #else
+        return nil
+        #endif
+    }
+
+    private func weatherTiles(_ weather: SkyWeather) -> [GlanceItem] {
+        var tiles: [GlanceItem] = []
+        tiles.append(.init(icon: "thermometer.medium", title: "Temperature",
+                           value: "\(weather.temperatureText)\nFeels like \(weather.apparentText)", action: .weather))
+        tiles.append(.init(icon: weather.symbolName, title: "Conditions",
+                           value: "\(weather.conditionText)\n\(weather.cloudCoverText) cloud cover", action: .weather))
+        tiles.append(.init(icon: "sun.max.trianglebadge.exclamationmark", title: "UV Index",
+                           value: "\(weather.uvIndex)\n\(weather.uvCategory)", action: .weather))
+        tiles.append(.init(icon: "humidity.fill", title: "Humidity",
+                           value: "\(weather.humidityText)\nDew point \(weather.dewPointText)", action: .weather))
+        tiles.append(.init(icon: "wind", title: "Wind", value: weather.windText, action: .weather))
+        if let chance = weather.precipitationChanceText {
+            tiles.append(.init(icon: "drop.fill", title: "Precipitation",
+                               value: "\(chance)\n\(weather.precipitationText) this hour", action: .weather))
+        } else {
+            tiles.append(.init(icon: "eye.fill", title: "Visibility", value: weather.visibilityText, action: .weather))
+        }
+        return tiles
     }
 
     // MARK: - Values
@@ -231,6 +346,9 @@ struct GlanceCard: View {
         let status = settings.travelingMode
             ? "Traveling mode on"
             : (meters >= Settings.travelThresholdM ? "Past 48 mi" : "Within 48 mi")
+        // Inside the home city the distance is GPS noise ("0.0 mi (0.0 km)"): say where you are, the
+        // way the Makkah tile says "At the Kaaba" inside the same radius.
+        guard meters > Self.atKaabaRadius else { return "At home\n\(status)" }
         return "\(Self.distanceText(meters))\n\(status)"
     }
 
@@ -301,6 +419,8 @@ struct GlanceCard: View {
 /// share one: the three sun tiles open the prayer calendar, the Moon and Next Islamic Date the
 /// Hijri calendar, the location and time-zone tiles the City Prayer Times sheet.
 enum GlanceAction: Hashable {
+    /// The full weather reading (`WeatherDetailSheet`).
+    case weather
     /// The City Prayer Times sheet (the same one the city pill at the top opens).
     case cityPrayerTimes
     /// The Adhan settings sheet, opened straight onto Prayer Calculation.
@@ -315,6 +435,17 @@ enum GlanceAction: Hashable {
     case homeLocation
     /// The Adhan settings sheet, opened straight onto Traveling Mode.
     case travelingMode
+}
+
+/// One titled run of tiles in the card (see `GlanceCard.groups`).
+struct GlanceGroup: Identifiable {
+    static let here = "here"
+    static let today = "today"
+    static let weather = "weather"
+
+    let id: String
+    let title: String
+    let tiles: [GlanceItem]
 }
 
 struct GlanceItem: Identifiable, Equatable {
@@ -340,9 +471,15 @@ private struct GlanceTile: View, Equatable {
     let tile: GlanceItem
     let accent: Color
     let onSelect: (GlanceAction) -> Void
+    /// true = this tile spans the whole row (a group's odd last one), so it has no sibling to keep a
+    /// matching height with and reserves no second line.
+    var fullWidth: Bool = false
+    /// Read from the environment, so `==` need not fold it: a text-size change re-renders the tile
+    /// through its environment, not through its inputs.
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     static func == (lhs: GlanceTile, rhs: GlanceTile) -> Bool {
-        lhs.tile == rhs.tile && lhs.accent == rhs.accent
+        lhs.tile == rhs.tile && lhs.accent == rhs.accent && lhs.fullWidth == rhs.fullWidth
     }
 
     var body: some View {
@@ -366,7 +503,9 @@ private struct GlanceTile: View, Equatable {
         let headline = lines.first ?? tile.value
         let detail = lines.count > 1 ? lines[1] : nil
 
-        return VStack(alignment: .leading, spacing: 5) {
+        // CENTERED (Abu, 2026-10-05: everything but ayah/hadith prose and the summary tiles).
+        // A glance tile is an eyebrow over a short value, so both lines centre on the tile's middle.
+        return VStack(alignment: .center, spacing: 5) {
             HStack(spacing: 6) {
                 Group {
                     if tile.showsMoonPhase {
@@ -386,17 +525,21 @@ private struct GlanceTile: View, Equatable {
 
                 Text(tile.title.uppercased())
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .foregroundColor(Self.secondaryInk)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                     .minimumScaleFactor(0.8)
             }
 
             // ONE Text carrying both styles, with two lines RESERVED for every tile: a long
             // headline wraps into the second line, a detail renders as the second line, and a
             // short lone headline leaves it empty - but the tile is the same height in all three
-            // cases, so the grid never staggers.
+            // cases, so the grid never staggers. At the accessibility sizes the grid is one column
+            // (nothing to stagger against), so the value takes the lines it needs instead.
             Group {
-                if #available(iOS 16.0, *) {
+                if dynamicTypeSize.isAccessibilitySize || fullWidth {
+                    styledValue(headline: headline, detail: detail)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if #available(iOS 16.0, *) {
                     styledValue(headline: headline, detail: detail)
                         .lineLimit(2, reservesSpace: true)
                 } else {
@@ -404,10 +547,10 @@ private struct GlanceTile: View, Equatable {
                         .lineLimit(2)
                 }
             }
-            .multilineTextAlignment(.leading)
+            .multilineTextAlignment(.center)
             .minimumScaleFactor(0.75)
         }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .top)
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -423,7 +566,12 @@ private struct GlanceTile: View, Equatable {
         guard let detail else { return headlineText }
         return headlineText + Text("\n" + detail)
             .font(.caption)
-            .foregroundColor(.secondary)
+            .foregroundColor(Self.secondaryInk)
     }
+
+    /// The eyebrow and the detail line. The system `.secondary` turns vibrant on the tinted glass and
+    /// measured 3.0:1 (dark) and 3.1:1 (light) for the 12 pt detail; a plain primary at 70% keeps the
+    /// same step down from the headline and reads at about 5:1 in both.
+    private static let secondaryInk = Color.primary.opacity(0.7)
 }
 #endif

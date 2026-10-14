@@ -98,7 +98,10 @@ final class LaunchWarmup: ObservableObject {
 }
 
 struct LaunchScreen: View {
-    @ObservedObject var settings = Settings.shared
+    /// The accent and colour scheme come from the appearance environment (injected at the root, so the
+    /// cover has them on its first frame); observing Settings re-evaluated the cover's blurred gradient
+    /// tree on every publish of the launch window (the first fetch writes several) (Phase 10.4).
+    @Environment(\.appearance) private var appearance
     // Note: QuranData / QuranPlayer / NamesViewModel are intentionally NOT observed here. They publish
     // frequently while loading (load-state changes, the 6k-entry verse index, player/names state), and
     // observing them would re-render the launch screen mid-animation - the source of the startup chop.
@@ -128,12 +131,15 @@ struct LaunchScreen: View {
     @State private var rightGlassOffset: CGFloat = 0
 
     var body: some View {
+        #if DEBUG
+        let _ = LaunchClock.markOnce("launch screen: first body")
+        #endif
         GeometryReader { geo in
             let layoutScale = LaunchScreenLayout.scale(for: geo.size)
             ZStack {
                 LaunchScreenBackground(
                     backgroundColor: backgroundColor,
-                    accentColor: settings.accentColor.color,
+                    accentColor: appearance.accent,
                     isDarkMode: currentColorScheme == .dark,
                     gradientSize: gradientSize,
                     glowOpacity: glowOpacity,
@@ -154,6 +160,7 @@ struct LaunchScreen: View {
         }
         .ignoresSafeArea()
         .onAppear {
+            LaunchClock.mark("launch screen: on appear")
             Task { @MainActor in
                 await runLaunchAnimation()
             }
@@ -163,7 +170,7 @@ struct LaunchScreen: View {
     }
 
     private var currentColorScheme: ColorScheme {
-        settings.colorScheme ?? systemColorScheme
+        appearance.colorScheme ?? systemColorScheme
     }
 
     private var backgroundColor: Color {
@@ -185,7 +192,7 @@ struct LaunchScreen: View {
             
             LaunchCompanionCard(
                 imageName: "Al-Islam",
-                accentColor: settings.accentColor.color,
+                accentColor: appearance.accent,
                 isDarkMode: currentColorScheme == .dark,
                 width: card,
                 height: card,
@@ -198,7 +205,7 @@ struct LaunchScreen: View {
 
             LaunchCompanionCard(
                 imageName: "Al-Quran",
-                accentColor: settings.accentColor.color,
+                accentColor: appearance.accent,
                 isDarkMode: currentColorScheme == .dark,
                 width: card,
                 height: card,
@@ -216,7 +223,7 @@ struct LaunchScreen: View {
             VStack {
                 LaunchLogoCard(
                     title: "Al-Adhan",
-                    accentColor: settings.accentColor.color,
+                    accentColor: appearance.accent,
                     isDarkMode: currentColorScheme == .dark,
                     shimmerOffset: shimmerOffset,
                     layoutScale: layoutScale
@@ -230,7 +237,7 @@ struct LaunchScreen: View {
                 .offset(y: logoYOffset)
                 .padding(16 * layoutScale)
             }
-            .foregroundColor(settings.accentColor.color)
+            .foregroundColor(appearance.accent)
             .scaleEffect(size)
             .opacity(opacity)
         }
@@ -249,8 +256,24 @@ struct LaunchScreen: View {
         //    window, so background-init contention is invisible; the screen simply rests on the icon for as
         //    long as it takes. This is the "keep Al-Islam there and wait" behavior.
         async let settingsReady: Void = Settings.shared.waitUntilReady()
-        async let namesReady: Void = NamesViewModel.shared.waitUntilLoaded()
-        _ = await (settingsReady, namesReady)
+        #if HAS_QURAN
+        async let quranReady: Void = {
+            if QuranData.shared.shouldWaitForFullLaunchReadiness {
+                await QuranData.shared.waitUntilLoaded()
+            } else {
+                await QuranData.shared.waitUntilCoreLoaded()
+            }
+        }()
+        #endif
+        // Only what the landing tab needs. The player and the 99 Names used to be in this group too;
+        // neither is on the Adhan tab, and the Names parse (8 s cap, a background-QoS task) lost the
+        // race under Low Power Mode and held the icon for whole seconds after the Quran was in.
+        // (Without the Quran, Al-Adhan's case, the Adhan tab needs only Settings.)
+        #if HAS_QURAN
+        _ = await (settingsReady, quranReady)
+        #else
+        _ = await settingsReady
+        #endif
         LaunchClock.mark("stores ready")
 
         #if os(iOS)
@@ -304,7 +327,7 @@ struct LaunchScreen: View {
     }
 
     private func triggerHapticFeedback(_ feedbackType: HapticFeedbackType) {
-        guard settings.hapticOn else { return }
+        guard Settings.shared.hapticOn else { return }
 
         #if os(iOS)
         switch feedbackType {
@@ -422,6 +445,21 @@ struct LaunchLogoCard: View {
     var layoutScale: CGFloat = 1
     var showShimmer: Bool = true
 
+    /// The icon artwork at a size the card can use. The "<title>" asset is the 1024 px marketing
+    /// image, which the watch decoded whole for a 146 pt card: 4 MB of bitmap and the decode on the
+    /// launch path (it was the whole "Image IO" line of the watch's footprint). The watch draws the
+    /// 300 px "<title> Tile" twin instead when the catalog has one (a 2x face shows the card at 292 px,
+    /// so it stays crisp); the phone keeps the full image, where the card is larger and the decode is
+    /// nothing.
+    private var logoImage: Image {
+        #if os(watchOS)
+        if UIImage(named: "\(title) Tile") != nil {
+            return Image("\(title) Tile")
+        }
+        #endif
+        return Image(title)
+    }
+
     var body: some View {
         let s = layoutScale
         let outer: CGFloat = 170 * s
@@ -486,7 +524,7 @@ struct LaunchLogoCard: View {
                 }
             #endif
 
-            Image(title)
+            logoImage
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .cornerRadius(imgCr)
