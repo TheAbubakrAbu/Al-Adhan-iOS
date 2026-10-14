@@ -60,7 +60,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "72728CC62B3D1FF900FAA3B3"
             BuildableName = "Al-Adhan.app"
-            BlueprintName = "Watch"
             ReferencedContainer = "container:Al-Adhan.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -77,7 +76,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "72728CC62B3D1FF900FAA3B3"
             BuildableName = "Al-Adhan.app"
-            BlueprintName = "Watch"
             ReferencedContainer = "container:Al-Adhan.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

@@ -77,7 +77,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "72728D442B3D535600FAA3B3"
             BuildableName = "Complication.appex"
-            BlueprintName = "Complication"
             ReferencedContainer = "container:Al-Adhan.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -120,7 +119,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "72728D442B3D535600FAA3B3"
             BuildableName = "Complication.appex"
-            BlueprintName = "Complication"
             ReferencedContainer = "container:Al-Adhan.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
