@@ -36,13 +36,12 @@ struct PrayersEntryView: View {
     /// size, so the medium size runs tight and the large keeps the defaults.
     private var isMedium: Bool { widgetFamily == .systemMedium }
 
-    /// One cell of the Prayer Grid, matching the Adhan tab's `PrayerGridTile`: the symbol, the name
-    /// and the time stacked and centered, on the rounded well that fills for the current prayer
-    /// (Abu, 2026-10-05: the widgets get the tab's updated grid and split). The tier color still
-    /// comes from `prayerTierColor`, so past prayers recede exactly as before.
+    /// One cell of the Prayer Grid: the symbol and name over the time, in the prayer's tier color, with
+    /// no well behind it. The tab's tiled grid (a rounded well per cell, the current one filled) was
+    /// ported here on 2026-10-05 and taken back out on 2026-10-19 (Abu: those widgets "got turned into
+    /// completely different grids and it looked ugly"), so this is the 4.6.4 cell again.
     private func gridCell(_ prayer: Prayer) -> some View {
         let tint = prayerTierColor(for: prayer, in: entry.prayers, entry: entry, skyStyle: skyStyle)
-        let current = isCurrentPrayer(prayer, entry: entry)
         return VStack(alignment: .center, spacing: isMedium ? 2 : nil) {
             HStack {
                 Image(systemName: prayer.image)
@@ -50,10 +49,9 @@ struct PrayersEntryView: View {
                     .foregroundColor(tint)
                     .padding(.trailing, -5)
 
-                Text(prayer.displayName)
+                Text(prayer.displayName.localizedDisplay)
                     .font(.subheadline)
-                    // The current prayer's name is heavy, as in the app's tile.
-                    .fontWeight(current ? .heavy : .bold)
+                    .fontWeight(.bold)
                     .foregroundColor(tint)
             }
 
@@ -61,16 +59,6 @@ struct PrayersEntryView: View {
                 .font(.subheadline.monospacedDigit())
                 .foregroundColor(tint)
         }
-        .frame(maxWidth: .infinity)
-        // Tighter on the medium tile, which has only 126pt for two rows plus the context line.
-        .padding(.vertical, isMedium ? 4 : 8)
-        .padding(.horizontal, 4)
-        .background(PrayerWidgetCellWell(
-            isCurrent: current,
-            accent: entry.accentColor.color,
-            cornerRadius: isMedium ? 8 : 12,
-            skyStyle: skyStyle
-        ))
     }
 
     var body: some View {
@@ -151,7 +139,7 @@ struct PrayersEntryView: View {
                                     .frame(width: 22, height: 22)
                                     .foregroundColor(prayerTint(currentPrayer))
 
-                                Text(currentPrayer.displayName)
+                                Text(currentPrayer.displayName.localizedDisplay)
                                     .font(.title3)
                                     .foregroundColor(prayerTint(currentPrayer))
 
@@ -177,7 +165,7 @@ struct PrayersEntryView: View {
                                 Text("Starts at \(nextPrayer.time, style: .time)")
                                     .font(.caption)
 
-                                Text(nextPrayer.displayName)
+                                Text(nextPrayer.displayName.localizedDisplay)
                                     .font(.title3)
                                     .foregroundColor(prayerTint(nextPrayer))
 
@@ -240,5 +228,109 @@ struct PrayersWidget: Widget {
         .supportedFamilies([.systemMedium, .systemLarge])
         .configurationDisplayName("Prayer Grid")
         .description("All of today's prayer times in a grid; the large size adds the current and next prayer")
+    }
+}
+
+/// Prayer Tiles: the day's prayers as rounded tiles, the current one filled with the accent, and nothing
+/// else. It is the Prayer Grid medium as 4.6.5 shipped it (the tab's tiled cell) without that version's
+/// date-and-city footer (Abu, 2026-10-28, after a user found that footer too small to read): the tiles
+/// take the whole widget instead. A widget of its own because Prayer Grid itself went back to the flat
+/// 4.6.4 cell on 2026-10-19 and stays that way.
+struct PrayerTilesEntryView: View {
+    var entry: PrayersProvider.Entry
+    /// true = over a sky gradient: white tiers and a white fill for the current tile (`PrayerWidgetCellWell`).
+    var skyStyle: Bool = false
+
+    /// The same gap between tiles both ways, so the grid reads as even tiles rather than rows.
+    private let gap: CGFloat = 8
+
+    /// Three across for the full day (two rows of three); a traveler's combined four go two by two.
+    private var columns: Int { entry.prayers.count > 4 ? 3 : 2 }
+
+    private var rows: [[Prayer]] {
+        stride(from: 0, to: entry.prayers.count, by: columns).map {
+            Array(entry.prayers[$0..<min($0 + columns, entry.prayers.count)])
+        }
+    }
+
+    var body: some View {
+        if entry.prayers.isEmpty {
+            PrayerWidgetEmptyState(tint: skyStyle ? .white : entry.accentColor.color, skyStyle: skyStyle)
+        } else {
+            // Rows of tiles that each take an equal share of the height, which a LazyVGrid can't do: its
+            // rows only ever hug their content.
+            VStack(spacing: gap) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    HStack(spacing: gap) {
+                        ForEach(row) { tile($0) }
+                        // A short last row keeps every tile the same width.
+                        ForEach(row.count..<columns, id: \.self) { _ in
+                            Color.clear.frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
+        }
+    }
+
+    /// One tile, as the 4.6.5 Prayer Grid drew it: the symbol and name over the time, in the prayer's tier
+    /// color, the name heavy on the current one, on a well that fills for the current prayer.
+    private func tile(_ prayer: Prayer) -> some View {
+        let tint = prayerTierColor(for: prayer, in: entry.prayers, entry: entry, skyStyle: skyStyle)
+        let current = isCurrentPrayer(prayer, entry: entry)
+        return VStack(spacing: 2) {
+            HStack {
+                Image(systemName: prayer.image)
+                    .padding(.trailing, -5)
+
+                Text(prayer.displayName.localizedDisplay)
+                    .fontWeight(current ? .heavy : .bold)
+            }
+
+            Text(prayer.time, style: .time)
+                .monospacedDigit()
+        }
+        .font(.subheadline)
+        .foregroundColor(tint)
+        .padding(.horizontal, 4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(PrayerWidgetCellWell(
+            isCurrent: current,
+            accent: entry.accentColor.color,
+            cornerRadius: 10,
+            skyStyle: skyStyle
+        ))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+struct PrayerTilesWidget: Widget {
+    let kind: String = AdhanWidgetKind.PrayerTilesWidget.rawValue
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
+            PrayerTilesEntryView(entry: entry)
+                .widgetContainerBackground(legacyPadding: true)
+        }
+        .supportedFamilies([.systemMedium])
+        .configurationDisplayName("Prayer Tiles")
+        .description("All of today's prayer times as tiles, with the current prayer filled in")
+    }
+}
+
+/// The Prayer Tiles widget, unchanged, over the current prayer's sky gradient.
+struct PrayerTilesSkyWidget: Widget {
+    let kind: String = AdhanWidgetKind.PrayerTilesSkyWidget.rawValue
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: PrayersProvider()) { entry in
+            PrayerTilesEntryView(entry: entry, skyStyle: true)
+                .modifier(PrayerSkyChrome(entry: entry))
+        }
+        .supportedFamilies([.systemMedium])
+        .configurationDisplayName("Prayer Tiles Sky")
+        .description("All of today's prayer times as tiles, over the current prayer's sky gradient")
     }
 }

@@ -32,9 +32,9 @@ enum NaggingLastCalls: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .both: return "10 and 5 min"
-        case .five: return "5 min"
-        case .none: return "None"
+        case .both: return String(localized: "10 and 5 min")
+        case .five: return String(localized: "5 min")
+        case .none: return String(localized: "None")
         }
     }
 }
@@ -49,10 +49,10 @@ extension Settings {
     /// every install. The tones (echo, takbir, chime, ring, alarm) are seconds long and ship as three
     /// identical bundled clips, as before.
     static let supportedAdhanSounds: [AdhanSoundOption] = [
-        .init(id: "default", title: "Default"),
+        .init(id: "default", title: String(localized: "Default")),
         // A 3.6-second chime, not a call to prayer - for being told without being called. All three of its
         // clips are the same recording, because there is nothing to cut down.
-        .init(id: "echo", title: "Echo"),
+        .init(id: "echo", title: String(localized: "Echo")),
         // A 2.6-second SINGLE takbir ("Allahu Akbar"), the second tone-not-adhan option: instantly
         // recognizable as the prayer app without being a full call. Like echo, all three clips are the
         // same recording. Cut from the opening of the Aaqib Azeez adhan below, ending on the first
@@ -60,7 +60,7 @@ extension Settings {
         // there is no silence to cut at; a prior CC0 field recording was dropped because its second
         // takbir was clipped in the source). Mastered to match the adhan clips' loudness, hotter than
         // echo, for the "tones are too quiet" complaint. CC BY-SA 4.0, see CREDITS.md.
-        .init(id: "takbir", title: "Takbir"),
+        .init(id: "takbir", title: String(localized: "Takbir")),
 
         // The three "cuts through a noisy room" tones, added for listeners who cannot pick a prayer
         // notification out of everyday background noise. Echo and Takbir both sit at 300-750 Hz, which
@@ -72,22 +72,22 @@ extension Settings {
         //
         // A rising three-note bell (A6-B6-E7, so 1.8-2.6 kHz), the figure struck three times, each
         // strike decaying in about half a second. The gentlest and the highest-pitched of the three.
-        .init(id: "chime", title: "Chime"),
+        .init(id: "chime", title: String(localized: "Chime")),
         // A rising three-note signal (C6-D6-E6, 1.0-1.3 kHz) whose last note rings out for a full
         // second, played twice. The lowest of the three, so the one that survives a phone in a pocket.
-        .init(id: "ring", title: "Ring"),
+        .init(id: "ring", title: String(localized: "Ring")),
         // Twelve 110ms beeps in three groups of four, 1.2 kHz with strong harmonics through 4.6 kHz.
         // The loudest and most cutting tone in the app, and the only one that sounds like an alarm.
-        .init(id: "alarm", title: "Alarm"),
+        .init(id: "alarm", title: String(localized: "Alarm")),
 
-        .init(id: "egypt", title: "Egypt"),
-        .init(id: "makkah", title: "Makkah"),
-        .init(id: "madina", title: "Madina"),
-        .init(id: "alaqsa", title: "Al-Aqsa"),
-        .init(id: "alaqsa-2", title: "Al-Aqsa 2"),
+        .init(id: "egypt", title: String(localized: "Egypt")),
+        .init(id: "makkah", title: String(localized: "Makkah")),
+        .init(id: "madina", title: String(localized: "Madina")),
+        .init(id: "alaqsa", title: String(localized: "Al-Aqsa")),
+        .init(id: "alaqsa-2", title: String(localized: "Al-Aqsa 2")),
         // Clean solo-voice adhan, CC0 via Wikimedia Commons ("Beautiful adhan" by Adam-synagda) - the
         // uploader is not the muadhin's stage name, so it's titled by style, not by name. See CREDITS.md.
-        .init(id: "serene", title: "Serene"),
+        .init(id: "serene", title: String(localized: "Serene")),
 
         // Adhan by Aaqib Azeez, CC BY-SA 4.0 via Wikimedia Commons (see CREDITS.md). Its -30 cut ends on a
         // natural phrase boundary at ~27.7s rather than a mid-phrase fade.
@@ -265,7 +265,7 @@ extension Settings {
     private static let didAdoptMinshawiDefaultKey = "didAdoptMinshawiAdhanDefault"
 
     /// One-time startup migrations for the adhan sound selection. These write straight to `UserDefaults`
-    /// (where `@AppStorage` reads from) instead of going through the property, so they can run inside
+    /// (where `@Setting` reads from) instead of going through the property, so they can run inside
     /// `Settings.init` without the `didSet` kicking off a prayer-time refresh mid-initialization.
     func runAdhanSoundStartupMigrations() {
         let defaults = UserDefaults.standard
@@ -295,7 +295,7 @@ extension Settings {
             // over whatever was stored - so a user who had deliberately chosen "Default" tapped a
             // notification, the relaunch ran this migration, and their selection silently became
             // Minshawi 1. A device that never set the key already resolves to `defaultAdhanSoundID`
-            // through the `@AppStorage` default, which is all the adoption this migration ever needed.
+            // through the `@Setting` default, which is all the adoption this migration ever needed.
             //
             // Nor is there a migration for the title swap above: anyone already listening to a Minshawi
             // adhan keeps the exact recording they picked (the ids never moved). It is now labelled with
@@ -414,6 +414,44 @@ extension Settings {
         rawPrayerCacheEvictionHead = 0
     }
     private static let geocodeActor = GeocodeActor()
+    /// The interface language the stored city label was geocoded in (`fetchPrayerTimes` re-asks on a change).
+    private static let cityLabelLanguageKey = "currentLocationLabelLanguage"
+    /// The same for the home city's label (`refreshHomeLabelForLanguage`).
+    private static let homeLabelLanguageKey = "homeLocationLabelLanguage"
+
+    /// The region half of a "City, Region" label. An Arabic label with a Latin state code ("إيرفين، CA") reads
+    /// broken, so Arabic takes the country's name when the geocoder answers with a code.
+    private static func labelRegion(_ placemark: CLPlacemark) -> String? {
+        if let area = placemark.administrativeArea, !(AppLanguage.isArabicScript && area.allSatisfy(\.isASCII)) { return area }
+        return placemark.country
+    }
+
+    /// The home city's label in the interface language: it was saved in whichever language was active when it
+    /// was set, and the traveling banner shows it. Once per language; the coordinates stay as saved. Favorites
+    /// are left alone, because their labels are matched as keys.
+    func refreshHomeLabelForLanguage() {
+        // A label made before this key existed was made in English: an English install is not stale, and
+        // never re-geocodes (and rewrites) a home it already has.
+        guard Self.isAppProcess, !Self.homeRelabelInFlight, let home = homeLocation, !home.city.contains("("),
+              (UserDefaults.standard.string(forKey: Self.homeLabelLanguageKey) ?? "en") != AppLanguage.code else { return }
+        let locale = Locale(identifier: AppLanguage.code)
+        Self.homeRelabelInFlight = true
+        Task { @MainActor in
+            defer { Self.homeRelabelInFlight = false }
+            let location = CLLocation(latitude: home.latitude, longitude: home.longitude)
+            guard let placemark = try? await CLGeocoder().reverseGeocodeLocation(location, preferredLocale: locale).first,
+                  let city = placemark.locality ?? placemark.subLocality ?? placemark.subAdministrativeArea ?? placemark.name
+            else { return }
+            let label = Self.labelRegion(placemark).map { "\(city), \($0)" } ?? city
+            // Only if home is still where it was when the lookup started.
+            if let now = homeLocation, now.latitude == home.latitude, now.longitude == home.longitude, now.city != label {
+                homeLocation = Location(city: label, latitude: home.latitude, longitude: home.longitude)
+            }
+            UserDefaults.standard.set(AppLanguage.code, forKey: Self.homeLabelLanguageKey)
+        }
+    }
+    /// One home relabel at a time: a failed lookup writes no language, so every refresh would start another.
+    private static var homeRelabelInFlight = false
     private static let networkMonitor = NWPathMonitor()
     private static let networkMonitorQueue = DispatchQueue(label: AppIdentifiers.networkMonitorQueueLabel)
     private static var didStartNetworkMonitor = false
@@ -545,8 +583,9 @@ extension Settings {
 
         switch status {
         case .authorizedAlways, .authorizedWhenInUse:
-            // Guarded: an unconditional `@AppStorage` write is a publish even when nothing changed, and
-            // this path runs on every authorization callback.
+            // Guarded: this path runs on every authorization callback, and the guard keeps even the
+            // defaults write off it (a `@Setting` write of an unchanged value publishes nothing, but
+            // still touches the store).
             if showLocationAlert { showLocationAlert = false }
             // One self-terminating fix. The watch used to also `startUpdatingLocation()` here, which kept
             // 100 m continuous updates streaming for its entire foreground life; a wrist app that shows
@@ -959,7 +998,9 @@ extension Settings {
                 return try await inFlight.task.value
             }
             inFlight?.task.cancel()
-            let task = Task { try await CLGeocoder().reverseGeocodeLocation(location).first }
+            // In the interface's language: the label is shown as is, so an Arabic interface gets "إيرفين".
+            let locale = Locale(identifier: AppLanguage.code)
+            let task = Task { try await CLGeocoder().reverseGeocodeLocation(location, preferredLocale: locale).first }
             inFlight = (location, task)
             defer { if inFlight?.task == task { inFlight = nil } }
             return try await task.value
@@ -1080,7 +1121,7 @@ extension Settings {
                            ?? placemark.subLocality
                            ?? placemark.subAdministrativeArea
                            ?? placemark.name
-                let region = placemark.administrativeArea ?? placemark.country
+                let region = Self.labelRegion(placemark)
                 if let c = cityLike, let r = region { return "\(c), \(r)" }
                 if let c = cityLike { return c }
                 if let r = region { return r }
@@ -1102,6 +1143,7 @@ extension Settings {
             }
 
             Self.cachedPlacemark = (coord, newCity, detectedCountryCode)
+            UserDefaults.standard.set(AppLanguage.code, forKey: Self.cityLabelLanguageKey)
             // Anchor the name to where it was resolved, so `cityFallback` can later tell "still here" from
             // "long gone" without a network.
             Self.cityAnchor = CLLocation(latitude: latitude, longitude: longitude)
@@ -1203,7 +1245,18 @@ extension Settings {
     func recommendedHighLatitudeRuleLabel(atLatitude latitude: Double) -> String {
         let rule = Self.highLatitudeRuleUnderAutomatic(
             latitude: latitude, parameters: calculationParameters(forStoredLabel: prayerCalculation))
-        return Self.highLatitudeRuleLabels[rule] ?? "Middle of the Night"
+        return Self.highLatitudeRuleDisplayName(Self.highLatitudeRuleLabels[rule] ?? "Middle of the Night")
+    }
+
+    /// A stored rule label (`highLatitudeRuleOptions`) as the reader sees it. The stored label stays English.
+    static func highLatitudeRuleDisplayName(_ label: String) -> String {
+        switch label {
+        case automaticHighLatitudeRule: return String(localized: "Automatic")
+        case "Middle of the Night": return String(localized: "Middle of the Night")
+        case "Seventh of the Night": return String(localized: "Seventh of the Night")
+        case "Twilight Angle": return String(localized: "Twilight Angle")
+        default: return label
+        }
     }
 
     // MARK: - Custom prayer names
@@ -1336,7 +1389,7 @@ extension Settings {
         // can't ring on every flip.
         if postAutoChangeNotification(
             id: Self.calculationNotificationId,
-            body: "Prayer calculation switched to \(detectedMethod) for \(Self.spokenPlace(currentLocation.city)).",
+            body: String(localized: "Prayer calculation switched to \(detectedMethod.localizedDisplay) for \(Self.spokenPlace(currentLocation.city))."),
             lastAnnouncedAt: lastCalculationNotificationAt
         ) {
             lastCalculationNotificationAt = Date()
@@ -1415,13 +1468,13 @@ extension Settings {
         }
 
         let hereName = Self.spokenPlace(currentLocation.city)
-        let homeName = homeLocation.city.contains("(") ? "your home" : "your home city of \(homeLocation.city)"
+        let homeName = homeLocation.city.contains("(") ? String(localized: "your home") : String(localized: "your home city of \(homeLocation.displayCity)")
         if isAway {
             if !travelingMode {
                 withAnimation { travelingMode = true }
                 travelTurnOffAutomatic = false
                 travelTurnOnAutomatic  = true
-                notifyTravelingModeChanged(body: "Traveling mode automatically turned on at \(hereName), away from \(homeName)")
+                notifyTravelingModeChanged(body: String(localized: "Traveling mode automatically turned on at \(hereName), away from \(homeName)"))
                 return true
             }
             // Already on: a standing "turned off" flag can only be stale (the mode is on), and its card
@@ -1433,7 +1486,7 @@ extension Settings {
                 withAnimation { travelingMode = false }
                 travelTurnOnAutomatic  = false
                 travelTurnOffAutomatic = true
-                notifyTravelingModeChanged(body: "Traveling mode automatically turned off at \(hereName), near \(homeName)")
+                notifyTravelingModeChanged(body: String(localized: "Traveling mode automatically turned off at \(hereName), near \(homeName)"))
                 return true
             }
             if travelTurnOnAutomatic { travelTurnOnAutomatic = false }
@@ -1442,9 +1495,10 @@ extension Settings {
     }
 
     /// A place name fit for a sentence: the coordinate placeholder that stands in for a city while
-    /// offline ("(36.17, -115.14)") reads as "your current location" instead.
+    /// offline ("(36.17, -115.14)") reads as "your current location" instead. Display text, so an Arabic
+    /// name takes the Arabic comma (`String.cityDisplay`).
     private static func spokenPlace(_ city: String) -> String {
-        city.contains("(") ? "your current location" : city
+        city.contains("(") ? String(localized: "your current location") : city.cityDisplay
     }
 
     /// The auto-toggle's announcement. See `postAutoChangeNotification` for the rate limit.
@@ -1469,6 +1523,9 @@ extension Settings {
     /// up. Returns whether the announcement was audible, i.e. whether the caller should refresh its stamp.
     @discardableResult
     private func postAutoChangeNotification(id: String, body: String, lastAnnouncedAt: Date?) -> Bool {
+        // Allow Notifications off: the verdict still applies (the mode or method changed), only the banner
+        // is withheld, and the stamp stays so the next one while it is on is audible.
+        guard notificationsEnabled else { return false }
         let now = Date()
         let inCooldown: Bool = {
             guard let last = lastAnnouncedAt, last <= now else { return false }
@@ -1476,7 +1533,7 @@ extension Settings {
         }()
 
         let content = UNMutableNotificationContent()
-        content.title = AppIdentifiers.appName
+        content.title = AppIdentifiers.displayName
         content.body  = body
         content.sound = inCooldown ? nil : .default
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
@@ -1560,18 +1617,27 @@ extension Settings {
         let now = Date()
         let effectiveDate = effectiveHijriReferenceDate(now: now)
         // Same-day AND same-offset: a cache computed under a different Hijri adjustment is stale
-        // even within the day (the adjustment stepper must repaint immediately).
-        if let h = hijriDate, Self.gregorian.isDate(h.date, inSameDayAs: effectiveDate), h.offset == hijriOffset {
+        // even within the day (the adjustment stepper must repaint immediately). Made today too: the
+        // Arabic interface's Gregorian line (`HijriDate.companionLine`) turns over at midnight while a
+        // Hijri day switched at Maghrib does not.
+        if let h = hijriDate, Self.gregorian.isDate(h.date, inSameDayAs: effectiveDate), h.offset == hijriOffset,
+           let made = h.computedAt, Self.gregorian.isDate(made, inSameDayAs: now) {
             return
         }
 
         let base = Self.hijriCalendarAR.date(byAdding: .day, value: hijriOffset, to: effectiveDate) ?? effectiveDate
-        let arabic = arabicNumberString(from: Self.hijriFormatterAR.string(from: base)) + " هـ"
+        let arabic = arabicHijriText(for: base)
         let english = Self.hijriFormatterEN.string(from: base)
 
         withAnimation {
-            hijriDate = HijriDate(english: english, arabic: arabic, date: effectiveDate, offset: hijriOffset)
+            hijriDate = HijriDate(english: english, arabic: arabic, date: effectiveDate, offset: hijriOffset, computedAt: now)
         }
+    }
+
+    /// An already adjusted Hijri date the way the header writes it in Arabic ("١٣ جمادى الأولى، ١٤٤٨ هـ"),
+    /// shared with the moon viewer so the two never differ.
+    func arabicHijriText(for adjusted: Date) -> String {
+        arabicNumberString(from: Self.hijriFormatterAR.string(from: adjusted)) + " هـ"
     }
     
     /// The parameters for a stored method label. Everything routes through `PrayerCalculationCatalog`, so a
@@ -2074,7 +2140,11 @@ extension Settings {
             return
         }
         
-        if force || loc.city.contains("(") {
+        // Also when the interface language changed since the label was made: the geocoder answers in the
+        // language it is asked in, and the label stayed in the old one until the user moved.
+        let labelLanguageStale = (UserDefaults.standard.string(forKey: Self.cityLabelLanguageKey) ?? "en") != AppLanguage.code
+        refreshHomeLabelForLanguage()
+        if force || loc.city.contains("(") || labelLanguageStale {
             // watchOS: attempt the geocode regardless of the path-monitor flag (it under-reports on the watch,
             // see `updateCity`). iOS: only when the network is actually reachable, otherwise defer.
             // Structured as a local launch + per-platform gate (not a constant boolean) so the watch build
@@ -2257,6 +2327,14 @@ extension Settings {
 
         if currentPrayer != resolvedCurrent {
             currentPrayer = resolvedCurrent
+            #if os(iOS)
+            // A new prayer has come in: everything delivered about the one before it is over (Abu,
+            // 2026-10-19: "get rid of them all once a new prayer comes in"). Its own adhan fires AT
+            // this instant and stays.
+            if let began = resolvedCurrent?.time {
+                removeDeliveredPrayerNotifications(firedBefore: began)
+            }
+            #endif
         }
         if nextPrayer != resolvedNext {
             nextPrayer = resolvedNext
@@ -2332,8 +2410,8 @@ extension Settings {
 
         switch status {
         case .authorized:
-            // Guarded: an @AppStorage write publishes even when the value is unchanged, and this runs
-            // on every Adhan tab appear.
+            // Guarded: this runs on every Adhan tab appear, and the guard keeps even the defaults
+            // write off it (a `@Setting` write of an unchanged value publishes nothing).
             if showNotificationAlert { showNotificationAlert = false }
             return true
 
@@ -2343,7 +2421,8 @@ extension Settings {
             return true
 
         case .denied:
-            showNotificationAlert = !notificationNeverAskAgain
+            // Not nagged about the system switch while the app's own switch is off.
+            showNotificationAlert = !notificationNeverAskAgain && notificationsEnabled
             logger.debug("Notification permission denied")
             return false
 
@@ -2354,7 +2433,8 @@ extension Settings {
             // permission undetermined instead of asking. DEBUG builds only.
             if ProcessInfo.processInfo.arguments.contains("-skipNotificationPrompt") { return false }
             #endif
-            guard askIfUndetermined else { return false }
+            // Nor prompted for it: the prompt comes when the app's switch is on and a screen asks again.
+            guard askIfUndetermined, notificationsEnabled else { return false }
             do {
                 let granted = try await center.requestAuthorization(options: [.alert, .sound])
                 showNotificationAlert = !granted && !notificationNeverAskAgain
@@ -2473,7 +2553,7 @@ extension Settings {
 
     /// Bumps the pass generation and returns the new value; a build stage that finds a newer
     /// generation when it runs has been superseded and adds nothing.
-    private static func nextNotificationPassGeneration() -> Int {
+    static func nextNotificationPassGeneration() -> Int {
         notificationPassGenerationLock.lock()
         defer { notificationPassGenerationLock.unlock() }
         notificationPassGeneration += 1
@@ -2490,7 +2570,7 @@ extension Settings {
     /// touches Settings. The one-shot schedulers below call it inline on main for their single request.
     private static func buildNotificationRequest(from spec: PendingNotificationSpec) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
-        content.title = AppIdentifiers.appName
+        content.title = AppIdentifiers.displayName
         content.body = spec.body
         #if os(iOS)
         content.sound = spec.soundFile.map(notificationSound(named:)) ?? .default
@@ -2533,18 +2613,18 @@ extension Settings {
     /// aside to the prayer's own name rather than as a second title. Shurooq and Jumuah already carried
     /// a gloss before this setting existed, so they keep exactly the words they had.
     static let prayerEnglishMeanings: [String: String] = [
-        "Fajr":             "dawn",
-        "Shurooq":          "end of Fajr",
-        "Dhuhr":            "midday",
-        "Dhuhr/Asr":        "midday and afternoon",
-        "Jumuah":           "Friday",
-        "Asr":              "afternoon",
-        "Maghrib":          "sunset",
-        "Maghrib/Isha":     "sunset and night",
-        "Isha":             "night",
-        "Duhaa":            "mid-morning",
-        "Islamic Midnight": "midpoint of the night",
-        "Last Third":       "last third of the night",
+        "Fajr":             String(localized: "dawn"),
+        "Shurooq":          String(localized: "end of Fajr"),
+        "Dhuhr":            String(localized: "midday"),
+        "Dhuhr/Asr":        String(localized: "midday and afternoon"),
+        "Jumuah":           String(localized: "Friday"),
+        "Asr":              String(localized: "afternoon"),
+        "Maghrib":          String(localized: "sunset"),
+        "Maghrib/Isha":     String(localized: "sunset and night"),
+        "Isha":             String(localized: "night"),
+        "Duhaa":            String(localized: "mid-morning"),
+        "Islamic Midnight": String(localized: "midpoint of the night"),
+        "Last Third":       String(localized: "last third of the night"),
     ]
 
     /// A short stamp of every setting that changes what a prayer notification SAYS, appended to each
@@ -2562,11 +2642,16 @@ extension Settings {
         var stamp = ""
         if settings.prayerNotificationEnglishNames { stamp += "e" }
         if settings.travelingMode { stamp += "t" }
+        // The interface language writes every body (Arabic since 2026-10-24): a switch has to rebuild the
+        // queue. English adds nothing, so English schedules keep their identifiers.
+        let language = AppLanguage.code.filter(\.isLetter).lowercased()
+        if !language.hasPrefix("en") { stamp += "l" + language }
         return stamp.isEmpty ? "" : "~\(stamp)"
     }
 
     /// The identifier namespaces this scheduler OWNS and may prune: its prayer requests
-    /// ("<name>-<minutes>-Y-M-D", one prefix per `notifTable` name), Hijri-event reminders ("Event-")
+    /// ("<name>-<minutes>-Y-M-D", one prefix per `notifTable` name), Hijri-event reminders and the
+    /// clock-change heads-up ("Event-")
     /// and refresh nags ("RefreshReminder-"). Every other pending identifier belongs to another
     /// feature and must be left alone - the blanket "not in desiredIDs → stale" prune used to delete
     /// the Quran planner's daily reminder on every prayer reschedule (i.e. every launch), because the
@@ -2853,7 +2938,7 @@ extension Settings {
         let id = String(format: "RefreshReminder-%04d-%02d-%02d", comps.year ?? 0, comps.month ?? 0, comps.day ?? 0)
         let spec = PendingNotificationSpec(
             identifier: id,
-            body: "Please open the app to refresh today’s prayer times and notifications.",
+            body: String(localized: "Please open the app to refresh today’s prayer times and notifications."),
             soundFile: nil,
             categoryIdentifier: nil,
             intendedFireDate: date,
@@ -2908,6 +2993,16 @@ extension Settings {
         #else
         let plansAnyway = false
         #endif
+        guard notificationsEnabled || plansAnyway else {
+            // Allow Notifications is off (`notificationsEnabledDidChange`): nothing is built, and the queue
+            // is cleared here too, so a pass raised while it is off (a location fix, a settings change, a
+            // launch) can never bring an alert back.
+            logger.debug("Prayer schedule skipped: Allow Notifications is off")
+            _ = Self.nextNotificationPassGeneration()
+            UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+            completion?()
+            return
+        }
         if Self.notificationsDeliverable == nil, !plansAnyway {
             // No authorization check has run yet this launch: a traveling flip at launch schedules
             // before the Adhan tab asks, and built 61 requests that all failed with permission denied
@@ -2936,6 +3031,12 @@ extension Settings {
         }
         logger.debug("Scheduling prayer time notifications")
         let center = UNUserNotificationCenter.current()
+        #if os(iOS)
+        // The lock-screen buttons name each prayer in the user's own spelling (see
+        // `prayerNotificationCategories`), so the categories go out with every pass: a rename or a
+        // traveling flip changes the titles.
+        center.setNotificationCategories(prayerNotificationCategories())
+        #endif
 
         // iOS keeps at most 64 pending notifications and silently drops the rest. The app can build far
         // more than that (multiple prayers × offsets × days × nags + events), which is why adhan /
@@ -2967,7 +3068,9 @@ extension Settings {
         // refresh nags below do NOT, so they're collected regardless of location - date notifications work
         // even before (or without) a location fix, instead of being silently skipped by an early return.
         let hasPrayers = currentLocation?.city != nil && prayers != nil
-        if let city = currentLocation?.city, let prayerObj = prayers {
+        // The city as the notification text shows it (`Location.displayCity`): it is only ever read
+        // into the bodies below.
+        if let city = currentLocation?.displayCity, let prayerObj = prayers {
             func collectPrayer(_ prayer: Prayer, _ minutes: Int?, extended: Bool = false) {
                 guard let built = makePrayerNotificationRequest(for: prayer, preNotificationTime: minutes, city: city) else { return }
                 if built.isAdhan {
@@ -3044,6 +3147,9 @@ extension Settings {
                                                    to: Calendar.current.startOfDay(for: Date())) ?? .distantFuture
             eventRequests.removeAll { $0.date > horizonEnd }
         }
+        // The evening before the clocks change, while any prayer notification is on: tier 3 with the
+        // day-before Islamic date reminders it is modelled on. Needs no location, like them.
+        if let built = makeClockChangeNotificationRequest() { eventRequests.append(built) }
 
         var nagRequests: [(spec: PendingNotificationSpec, date: Date)] = []
         if naggingMode, let built = makeRefreshNagRequest(inDays: 1) { nagRequests.append(built) }
@@ -3312,6 +3418,10 @@ extension Settings {
     }
 
     private func isForegroundAdhanEligible(_ name: String) -> Bool {
+        // The in-app adhan stands in for the at-time notification, so Allow Notifications off silences it
+        // too ("no prayer alerts or adhan"): with the switch off and the app open at Dhuhr, the full
+        // recording still played, and opening the app after a prayer still played or offered it.
+        guard notificationsEnabled else { return false }
         guard Self.adhanEligiblePrayerNames.contains(name) else { return false }
         // A prayer whose adhan sound is off gets the system notification sound; playing the recording in-app
         // anyway would be the exact thing the user turned off.
@@ -3331,12 +3441,12 @@ extension Settings {
         // The gloss goes on the prayer being ASKED about, not on the deadline: "Did you pray Maghrib
         // (sunset)? Isha in 30m" reads as one question, where glossing both would read as two.
         let askedPart = prayerNotificationEnglishNames
-            ? asked + (Self.prayerEnglishMeanings[asked].map { " (\($0))" } ?? "")
-            : asked
-        let deadline = "\(cascade.displayName) in \(minutes)m"
+            ? asked.localizedDisplay + (Self.prayerEnglishMeanings[asked].map { " (\($0))" } ?? "")
+            : asked.localizedDisplay
+        let deadline = String(localized: "\(cascade.displayName) in \(minutes)m")
         let when = "[\(formatDate(cascade.time))]"
-        return "Did you pray \(askedPart)? \(deadline) in \(city)"
-             + (travelingMode ? " (traveling)" : "")
+        return String(localized: "Did you pray \(askedPart)? \(deadline) in \(city)")
+             + (travelingMode ? " " + String(localized: "(traveling)") : "")
              + " \(when)"
     }
 
@@ -3346,9 +3456,9 @@ extension Settings {
             // does not say that Fajr's window just closed, and "Jumuah" is the one whose day matters.
             switch prayer.nameTransliteration {
             case "Shurooq":
-                return " (end of Fajr)"
+                return " (\(String(localized: "end of Fajr")))"
             case "Jumuah":
-                return " (Friday)"
+                return " (\(String(localized: "Friday")))"
             default:
                 break
             }
@@ -3362,8 +3472,8 @@ extension Settings {
 
         if let m = minutesBefore {
             // “n m until …”
-            return "\(m)m until \(prayer.displayName)\(englishPart) in \(city)"
-                 + (travelingMode ? " (traveling)" : "")
+            return String(localized: "\(m)m until \(prayer.displayName)\(englishPart) in \(city)")
+                 + (travelingMode ? " " + String(localized: "(traveling)") : "")
                  + " [\(formatDate(prayer.time))]"
         } else if prayer.nameTransliteration == "Fajr",
                   // Fajr ends at sunrise - found by name, because a manual offset can move Sunrise off index 1.
@@ -3372,14 +3482,12 @@ extension Settings {
                   let sunrise = (getPrayerTimes(for: prayer.time, fullPrayers: true) ?? prayers?.prayers)?
                     .first(where: { $0.nameTransliteration == "Shurooq" })?.time,
                   sunrise > prayer.time {
-            return "Time for \(prayer.displayName)\(englishPart)"
-                 + " at \(formatDate(prayer.time)) in \(city)"
-                 + (travelingMode ? " (traveling)" : "")
-                 + " [ends at \(formatDate(sunrise))]"
+            return String(localized: "Time for \(prayer.displayName)\(englishPart) at \(formatDate(prayer.time)) in \(city)")
+                 + (travelingMode ? " " + String(localized: "(traveling)") : "")
+                 + " [\(String(localized: "ends at \(formatDate(sunrise))"))]"
         } else {
-            return "Time for \(prayer.displayName)\(englishPart)"
-                 + " at \(formatDate(prayer.time)) in \(city)"
-                 + (travelingMode ? " (traveling)" : "")
+            return String(localized: "Time for \(prayer.displayName)\(englishPart) at \(formatDate(prayer.time)) in \(city)")
+                 + (travelingMode ? " " + String(localized: "(traveling)") : "")
         }
     }
 
@@ -3467,9 +3575,26 @@ extension Settings {
         "Fajr", "Shurooq", "Dhuhr", "Dhuhr/Asr", "Jumuah", "Asr", "Maghrib", "Maghrib/Isha", "Isha"
     ]
 
+    /// The category every nag carried until 2026-10-19 ("Yes, on time" / "Yes, but late"). Still
+    /// registered, so the notifications an older build already scheduled keep their buttons.
     static let nagCategoryIdentifier = "PRAYER_NAG"
+    /// The two action identifiers are shared by every category below: the delegate only needs to
+    /// know "prayed" from "prayed late", whichever notification the button sat on.
     static let nagActionMarkPrayedIdentifier = "PRAYER_NAG_MARK_PRAYED"
     static let nagActionMarkPrayedLateIdentifier = "PRAYER_NAG_MARK_PRAYED_LATE"
+
+    /// The per-prayer categories (Abu, 2026-10-19: every prayer notification, not only the nags,
+    /// answers "Did you pray X?" when pressed and held). The asked prayer's tracker name follows the
+    /// prefix - "PRAYER_ASK:Dhuhr", "PRAYER_ASK_LATE:Dhuhr/Asr" - because the button titles name
+    /// the prayer, and a title is fixed per category.
+    private static let prayerAskCategoryPrefix = "PRAYER_ASK:"
+    private static let prayerAskLateCategoryPrefix = "PRAYER_ASK_LATE:"
+
+    /// The category a notification asking about `prayerName` carries: one "Yes, I prayed X" button,
+    /// or "on time" / "late" when `offersLate`.
+    static func prayerCategoryIdentifier(asking prayerName: String, offersLate: Bool) -> String {
+        (offersLate ? prayerAskLateCategoryPrefix : prayerAskCategoryPrefix) + prayerName
+    }
 
     private static let prayerTrackerDayFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -3624,6 +3749,12 @@ extension Settings {
             || (Calendar.current.isDateInYesterday(date) && target.contains("Isha"))
 
         if mark != nil {
+            #if os(iOS)
+            // The ones already shown go first: the adhan, the follow-up and any nags still sitting in
+            // Notification Center asked this very question (Abu, 2026-10-19: "it's annoying seeing a
+            // million notifications").
+            removeDeliveredPrayerNotifications(asking: prayerName, on: date)
+            #endif
             // Any answer settles the question the nags keep asking - prayed on time, prayed late, or
             // missed - so today's remaining ones go silent (they live under the NEXT prayer's
             // identifier).
@@ -3698,7 +3829,8 @@ extension Settings {
     }
 
     /// Starts or ends the menses pause. Ending it writes every day of the finished range into the
-    /// exempt-days set, so the pause is remembered by the history views after it is over. Both
+    /// exempt-days set (`pauseDaysToRecord`: none for a pause ended the day it began), so the pause
+    /// is remembered by the history views after it is over. Both
     /// directions rebuild notifications, because the pause silences nagging reminders.
     func setMensesPause(_ active: Bool) {
         guard active != mensesPauseActive else { return }
@@ -3707,20 +3839,34 @@ extension Settings {
             mensesPauseActive = true
         } else {
             var days = loadExemptDays()
-            var day = Calendar.current.startOfDay(for: mensesPauseStartDate ?? Date())
-            let today = Calendar.current.startOfDay(for: Date())
-            while day <= today {
+            for day in Self.pauseDaysToRecord(from: mensesPauseStartDate ?? Date(), endingAt: Date()) {
                 days.insert(prayerTrackerKey(for: day))
-                guard let next = Calendar.current.date(byAdding: .day, value: 1, to: day) else { break }
-                // Re-anchored: where the clocks skip midnight the running date drifts to 01:00 and
-                // the last day (today) was never reached, so it was left out of the exempt range.
-                day = Calendar.current.startOfDay(for: next)
             }
             saveExemptDays(days)
             mensesPauseActive = false
             mensesPauseStartStamp = 0
         }
         fetchPrayerTimes(notification: true)
+    }
+
+    /// The days a pause ending at `end` writes into the exempt set: each day from its start through
+    /// the day it ends, whose earlier prayers fell inside the period (that last day's card offers
+    /// Track Today). A pause ended the day it began writes nothing: no period is shorter than a day,
+    /// so it was a mistaken tap or a look, and until 2026-10-28 it left that whole day exempt (a
+    /// reader's 4.6.5 report: on and off again, and the Adhan tab still read "Tracking paused").
+    static func pauseDaysToRecord(from start: Date, endingAt end: Date, calendar: Calendar = .current) -> [Date] {
+        var days: [Date] = []
+        var day = calendar.startOfDay(for: start)
+        let last = calendar.startOfDay(for: end)
+        guard day < last else { return [] }
+        while day <= last {
+            days.append(day)
+            guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+            // Re-anchored: where the clocks skip midnight the running date drifts to 01:00 and
+            // the last day (today) was never reached, so it was left out of the exempt range.
+            day = calendar.startOfDay(for: next)
+        }
+        return days
     }
 
     /// Manual per-day correction from the history views. Days inside the ACTIVE pause range can't be
@@ -3951,17 +4097,17 @@ extension Settings {
     }
     #endif
 
-    /// Whether a tracker slot can be marked yet, honouring `trackerRequiresPrayerTime`.
+    /// Whether a tracker slot can be marked yet: not before its time has come in.
     ///
     /// Only TODAY is ever gated. Past days must stay editable - filling in what you forgot to mark at
     /// the time is what the history views are for - and future days are already blocked a whole day at
-    /// a time by `isFuture`. With the setting off this is always true, which is the behaviour the
-    /// tracker has always had.
+    /// a time by `isFuture`. This was a switch ("Mark Only After the Time Begins", off by default)
+    /// until 2026-10-19; it is the one behaviour now (Abu), so the row reads as "what is left to
+    /// pray" rather than "what is left to tick".
     ///
     /// Takes the slot's own `time` rather than looking the prayer up by name, so combined traveling
     /// rows ("Dhuhr/Asr") and Jumuah gate off the time actually shown for them.
     func canMarkPrayer(startingAt start: Date, on date: Date, at now: Date = Date()) -> Bool {
-        guard trackerRequiresPrayerTime else { return true }
         guard Calendar.current.isDate(date, inSameDayAs: now) else { return true }
         return start <= now
     }
@@ -3976,6 +4122,106 @@ extension Settings {
             cancelNagCascade(before: moment.name, at: moment.prayerTime)
         }
     }
+
+    #if os(iOS)
+    /// The category set handed to `setNotificationCategories`: the buttons a prayer notification
+    /// shows when it is pressed and held.
+    ///
+    /// A category's buttons are fixed when the notification is SCHEDULED - iOS cannot add or drop
+    /// one after delivery - so "late" is decided per notification from when it fires (see
+    /// `makePrayerNotificationRequest`), and the prayer's name is in every title: "30m until Asr"
+    /// asks about Dhuhr, and a bare "Yes, I prayed it" under it would be read as Asr. One pair of
+    /// categories per tracker name, titled with the user's own spelling; every scheduling pass
+    /// re-registers them, so a rename or a traveling flip reaches the titles. No `.foreground`
+    /// option: answering from the lock screen marks the tracker and silences the remaining
+    /// reminders without ever opening the app.
+    func prayerNotificationCategories() -> Set<UNNotificationCategory> {
+        func action(_ identifier: String, _ title: String) -> UNNotificationAction {
+            UNNotificationAction(identifier: identifier, title: title, options: [])
+        }
+        var categories: Set<UNNotificationCategory> = [
+            UNNotificationCategory(
+                identifier: Self.nagCategoryIdentifier,
+                actions: [
+                    action(Self.nagActionMarkPrayedIdentifier, String(localized: "Yes, on time")),
+                    action(Self.nagActionMarkPrayedLateIdentifier, String(localized: "Yes, but late")),
+                ],
+                intentIdentifiers: [],
+                options: []
+            ),
+        ]
+        for name in Self.trackablePrayerNames.sorted() {
+            let shown = customDisplayName(forPrayerKey: name) ?? name.localizedDisplay
+            categories.insert(UNNotificationCategory(
+                identifier: Self.prayerCategoryIdentifier(asking: name, offersLate: false),
+                actions: [action(Self.nagActionMarkPrayedIdentifier, String(localized: "Yes, I prayed \(shown)"))],
+                intentIdentifiers: [],
+                options: []
+            ))
+            categories.insert(UNNotificationCategory(
+                identifier: Self.prayerCategoryIdentifier(asking: name, offersLate: true),
+                actions: [
+                    action(Self.nagActionMarkPrayedIdentifier, String(localized: "Prayed \(shown) on time")),
+                    action(Self.nagActionMarkPrayedLateIdentifier, String(localized: "Prayed \(shown) late")),
+                ],
+                intentIdentifiers: [],
+                options: []
+            ))
+        }
+        return categories
+    }
+
+    /// Removes the delivered (already shown) prayer notifications that ask about `prayerName` on
+    /// `day`. Once it is marked, the adhan, the follow-up and any nags still sitting in Notification
+    /// Center are answered, and a stack of them was the "million notifications" (Abu, 2026-10-19).
+    /// Acting on one of them removes that one by itself; this takes the rest. Resolved through the
+    /// same question a tap asks, so it finds a traveling day's "Dhuhr/Asr" for "Dhuhr" and never
+    /// touches the Hijri events, the Sunnah reminders or the planner (none of them read as a prayer
+    /// notification to `tappedPrayerNotification`).
+    func removeDeliveredPrayerNotifications(asking prayerName: String, on day: Date) {
+        let target = Self.canonicalCoverage(of: prayerName)
+        guard !target.isEmpty else { return }
+        let center = UNUserNotificationCenter.current()
+        center.getDeliveredNotifications { delivered in
+            guard !delivered.isEmpty else { return }
+            // The resolver reads Settings and the prayer cache: main-confined.
+            DispatchQueue.main.async {
+                let ids = delivered.filter { notification in
+                    guard let moment = Self.tappedPrayerNotification(from: notification.request, deliveredAt: notification.date),
+                          let question = self.prayerQuestion(for: moment) else { return false }
+                    return Calendar.current.isDate(question.trackerDay, inSameDayAs: day)
+                        && !Self.canonicalCoverage(of: question.prayerName).isDisjoint(with: target)
+                }.map(\.request.identifier)
+                if !ids.isEmpty {
+                    center.removeDeliveredNotifications(withIdentifiers: ids)
+                }
+            }
+        }
+    }
+
+    /// Removes every delivered prayer notification that fired before `boundary`, the start of the
+    /// prayer that has just come in: "get rid of them all once a new prayer comes in" (Abu,
+    /// 2026-10-19). The new prayer's own adhan fires AT the boundary and stays; everything about the
+    /// prayer before it - its adhan, its reminders, the nags that asked about it - is over. Runs when
+    /// the current prayer rolls over while the app is open, and on the next launch or refresh
+    /// otherwise; nothing of the app runs on the lock screen in between.
+    func removeDeliveredPrayerNotifications(firedBefore boundary: Date) {
+        let center = UNUserNotificationCenter.current()
+        center.getDeliveredNotifications { delivered in
+            let ids = delivered.filter { notification in
+                guard Self.tappedPrayerNotification(from: notification.request, deliveredAt: notification.date) != nil else {
+                    return false
+                }
+                let fired = (notification.request.content.userInfo[Self.intendedFireDateUserInfoKey] as? TimeInterval)
+                    .map(Date.init(timeIntervalSince1970:)) ?? notification.date
+                return fired < boundary
+            }.map(\.request.identifier)
+            if !ids.isEmpty {
+                center.removeDeliveredNotifications(withIdentifiers: ids)
+            }
+        }
+    }
+    #endif
 
     /// Cancels the pending nags leading up to `prayerTime`. A cascade can straddle civil midnight
     /// (Islamic Midnight at 00:10 starts nagging at 23:40), and its identifiers carry the day each nag
@@ -4198,10 +4444,10 @@ extension Settings {
         // the app does not rule on it (see the nagging deadlines).
         let endsPart: String = {
             guard let next, !Self.canonicalCoverage(of: name).contains("Isha") else { return "" }
-            return " [ends at \(formatDate(next.time))]"
+            return " [\(String(localized: "ends at \(formatDate(next.time))"))]"
         }()
-        let body = "Have you prayed \(askedPart) yet? It began \(after)m ago in \(city)"
-            + (travelingMode ? " (traveling)" : "")
+        let body = String(localized: "Have you prayed \(askedPart) yet? It began \(after)m ago in \(city)")
+            + (travelingMode ? " " + String(localized: "(traveling)") : "")
             + endsPart
 
         var trigger = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: fireDate)
@@ -4209,11 +4455,17 @@ extension Settings {
         let stamp = Calendar.current.dateComponents([.year, .month, .day], from: day)
         let id = "\(name)-\(Self.nagFollowUpMarker)\(after)-\(stamp.year ?? 0)-\(stamp.month ?? 0)-\(stamp.day ?? 0)"
             + Self.notificationContentSignature(self)
+        // Its buttons follow the rule every prayer notification follows (see
+        // `makePrayerNotificationRequest`): it fires inside the window, so one "Yes, I prayed X".
+        let followUpMoment = PrayerNotificationMoment(name: name, minutesBefore: 0, prayerTime: prayer.time)
+        let category = prayerQuestion(for: followUpMoment).map {
+            Self.prayerCategoryIdentifier(asking: $0.prayerName, offersLate: $0.allowsLateAnswer(at: fireDate))
+        } ?? Self.nagCategoryIdentifier
         let spec = PendingNotificationSpec(
             identifier: id,
             body: body,
             soundFile: prayerNotificationSoundFile(for: prayer, minutesBefore: after, nag: (true, false)),
-            categoryIdentifier: Self.nagCategoryIdentifier,
+            categoryIdentifier: category,
             intendedFireDate: fireDate,
             trigger: trigger
         )
@@ -4262,26 +4514,36 @@ extension Settings {
 
         guard triggerTime > Date() else { return nil }
 
-        // Nag-cascade deliveries carry the "Did you pray?" category: the notification gains a
-        // "Yes, I prayed it" action, and tapping it in asks the same question in-app. Only actual
-        // cascade offsets - the plain pre-notification and the at-time adhan stay plain.
+        // Every prayer notification carries the "Did you pray X?" buttons, not only the nags (Abu,
+        // 2026-10-19): the adhan, a plain pre-notification and a nag alike answer from the lock
+        // screen. The question comes from the same resolver a tap uses, so the buttons, the body and
+        // the in-app question can never name different prayers.
+        //
+        // WHICH buttons is settled here, because iOS fixes a notification's actions when it is
+        // scheduled and cannot add or drop one after delivery. "Late" is offered only when the asked
+        // prayer's window has already closed by the time this fires (a pre-Fajr reminder asking
+        // about Isha, Shurooq asking about Fajr, Islamic Midnight asking about Isha); until then a
+        // prayer that was prayed was prayed on time, so there is one "yes". Read after the window
+        // closes, that single button still records on time; the in-app question a tap raises is the
+        // one that can offer "late" then (`PrayerNotificationPrompt`).
         var categoryIdentifier: String?
         /// Set for a nag delivery: the body names the prayer being asked about instead of only the
         /// approaching time (see `nagBody`).
         var nagAskedName: String?
         let nag = nagDelivery(minutes: minutes, before: prayer, firingAt: triggerTime)
         #if os(iOS)
-        if let m = minutes, nag.isNag {
-            categoryIdentifier = Self.nagCategoryIdentifier
+        let moment = PrayerNotificationMoment(name: prayer.nameTransliteration, minutesBefore: minutes ?? 0, prayerTime: prayer.time)
+        if let question = prayerQuestion(for: moment) {
+            categoryIdentifier = Self.prayerCategoryIdentifier(
+                asking: question.prayerName,
+                offersLate: question.allowsLateAnswer(at: triggerTime)
+            )
             // Already answered (prayed, late, or recorded missed): the cascade is still scheduled for
             // tomorrow, but TODAY's remaining nags must not ask again - that is the nagging the mark
             // was meant to end. `cancelPendingNags` handles the live case; this covers a reschedule
-            // that happens after the answer. The same resolver a tap uses, so the body and the
-            // in-app question can never name different prayers.
-            let moment = PrayerNotificationMoment(name: prayer.nameTransliteration, minutesBefore: m, prayerTime: prayer.time)
-            if let asked = askedPrayer(for: moment),
-               !isPrayerMarked(asked.prayer.nameTransliteration, on: asked.day) {
-                nagAskedName = asked.prayer.nameTransliteration
+            // that happens after the answer.
+            if nag.isNag, !isPrayerMarked(question.prayerName, on: question.trackerDay) {
+                nagAskedName = question.prayerName
             }
         }
         #endif
@@ -4406,18 +4668,18 @@ extension Settings {
         let body: String
         if isNight {
             if dayBefore {
-                body = "Tomorrow night: \(titleText). \(eventSubTitle)."
+                body = String(localized: "Tomorrow night: \(Self.specialEventDisplayTitle(titleText)). \(eventSubTitle).")
             } else {
                 body = beforeFajr
-                    ? "Tonight at Maghrib: \(titleText). \(eventSubTitle). Sent 30 minutes before Fajr."
-                    : "Tonight at Maghrib: \(titleText). \(eventSubTitle)."
+                    ? String(localized: "Tonight at Maghrib: \(Self.specialEventDisplayTitle(titleText)). \(eventSubTitle). Sent 30 minutes before Fajr.")
+                    : String(localized: "Tonight at Maghrib: \(Self.specialEventDisplayTitle(titleText)). \(eventSubTitle).")
             }
         } else if dayBefore {
-            body = "\(titleText) is tomorrow: \(eventSubTitle)."
+            body = String(localized: "\(Self.specialEventDisplayTitle(titleText)) is tomorrow: \(eventSubTitle).")
         } else {
             body = beforeFajr
-                ? "\(titleText) is today: \(eventSubTitle). Sent 30 minutes before Fajr."
-                : "\(titleText) is today: \(eventSubTitle)."
+                ? String(localized: "\(Self.specialEventDisplayTitle(titleText)) is today: \(eventSubTitle). Sent 30 minutes before Fajr.")
+                : String(localized: "\(Self.specialEventDisplayTitle(titleText)) is today: \(eventSubTitle).")
         }
 
         // Stable identifier (title + date) so incremental rescheduling updates the same request in place
@@ -4426,7 +4688,7 @@ extension Settings {
         let id = "Event-\(dayBefore ? "DayBefore-" : "")\(titleText)-\(gregorianComps.year ?? 0)-\(gregorianComps.month ?? 0)-\(gregorianComps.day ?? 0)"
         let spec = PendingNotificationSpec(
             identifier: id,
-            body: body,
+            body: body.localizedDigits,
             soundFile: nil,
             categoryIdentifier: nil,
             intendedFireDate: finalDate,
@@ -4435,7 +4697,36 @@ extension Settings {
         return (spec, finalDate)
     }
 
-    
+    /// The heads-up for a clock change inside the schedule's horizon (Abu, 2026-10-28: "for daylight
+    /// savings give a notification if any prayer notifications are true the day before so its like a
+    /// normal islamic hijri calendar notification but the day before"). 6 PM the evening before, like
+    /// the day-before Islamic date reminders, and only while some prayer notification is on: those are
+    /// the alerts the change moves. Nil once that evening has passed; the prayer list's footer
+    /// (`ClockChangeFooter`) says it from then on.
+    func makeClockChangeNotificationRequest(now: Date = Date()) -> (spec: PendingNotificationSpec, date: Date)? {
+        guard Self.notifTable.values.contains(where: { self[keyPath: $0.enabled] }) else { return nil }
+        let calendar = Calendar(identifier: .gregorian)
+        guard let change = ClockChange.next(after: now, in: calendar.timeZone, horizonDays: Self.adhanHorizonDays,
+                                            calendar: calendar),
+              let fireDate = change.headsUpDate(calendar: calendar), fireDate > now
+        else { return nil }
+        var comps = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)
+        // Zone and calendar pinned as on the event requests (see `makeEventNotificationRequest`).
+        comps.timeZone = calendar.timeZone
+        comps.calendar = calendar
+        // Under "Event-", so the owned-prefix prune removes it once the change is behind us.
+        let id = "Event-ClockChange-\(comps.year ?? 0)-\(comps.month ?? 0)-\(comps.day ?? 0)"
+        let spec = PendingNotificationSpec(
+            identifier: id,
+            body: change.headsUpBody(timeFormatter: .timeEN).localizedDigits,
+            soundFile: nil,
+            categoryIdentifier: nil,
+            intendedFireDate: fireDate,
+            trigger: comps
+        )
+        return (spec, fireDate)
+    }
+
     @inline(__always)
     private func binding<T>(_ key: ReferenceWritableKeyPath<Settings, T>, default value: T) -> Binding<T> {
         Binding(
@@ -4563,37 +4854,37 @@ extension Settings {
             let named = home.map { !$0.isEmpty } ?? false
             if turnOn {
                 return AutoChangeCard(
-                    title: "Traveling Mode On",
+                    title: String(localized: "Traveling Mode On"),
                     message: named
-                        ? "You are away from \(home!), so prayers are shortened and combined."
-                        : "You are traveling, so prayers are shortened and combined.",
-                    confirmTitle: "Keep On",
-                    overrideTitle: "Turn Off")
+                        ? String(localized: "You are away from \(home!), so prayers are shortened and combined.")
+                        : String(localized: "You are traveling, so prayers are shortened and combined."),
+                    confirmTitle: String(localized: "Keep On"),
+                    overrideTitle: String(localized: "Turn Off"))
             }
             return AutoChangeCard(
-                title: "Traveling Mode Off",
+                title: String(localized: "Traveling Mode Off"),
                 message: named
-                    ? "You are back in \(home!), so prayers are full length again."
-                    : "You are home again, so prayers are full length again.",
-                confirmTitle: "OK",
-                overrideTitle: "Keep On")
+                    ? String(localized: "You are back in \(home!), so prayers are full length again.")
+                    : String(localized: "You are home again, so prayers are full length again."),
+                confirmTitle: String(localized: "OK"),
+                overrideTitle: String(localized: "Keep On"))
         }
 
         static func calculation(previous: String, detected: String, regionCode: String) -> AutoChangeCard {
             let place = countryName(forRegionCode: regionCode)
             return AutoChangeCard(
-                title: "Calculation Method Updated",
-                message: place.map { "Prayer times now use \(detected), the method for \($0)." }
-                    ?? "Prayer times now use \(detected) for this region.",
-                confirmTitle: "Use \(detected)",
-                overrideTitle: "Keep \(previous)")
+                title: String(localized: "Calculation Method Updated"),
+                message: place.map { String(localized: "Prayer times now use \(detected.localizedDisplay), the method for \($0).") }
+                    ?? String(localized: "Prayer times now use \(detected.localizedDisplay) for this region."),
+                confirmTitle: String(localized: "Use \(detected.localizedDisplay)"),
+                overrideTitle: String(localized: "Keep \(previous.localizedDisplay)"))
         }
     }
 
     func autoChangeCard(_ kind: AutoChangeCard.Kind) -> AutoChangeCard {
         switch kind {
-        case .travelOn: return .travel(turnOn: true, homeCity: homeLocation?.city)
-        case .travelOff: return .travel(turnOn: false, homeCity: homeLocation?.city)
+        case .travelOn: return .travel(turnOn: true, homeCity: homeLocation?.displayCity)
+        case .travelOff: return .travel(turnOn: false, homeCity: homeLocation?.displayCity)
         case .calculation:
             return .calculation(previous: calculationAutoPreviousMethod, detected: calculationAutoDetectedMethod,
                                 regionCode: calculationAutoDetectedCountryCode)
@@ -4675,43 +4966,5 @@ extension Settings {
         calculationAutoAnsweredCountryCode = calculationAutoDetectedCountryCode
         calculationAutoAnsweredMethod = calculationAutoDetectedMethod
         calculationAutoChanged = false
-    }
-}
-
-// MARK: - Simple Mode's rules (docs/Simple Mode Guide.md)
-
-/// The rules Simple Mode's views share, kept pure so they are tested on their own (SimpleModeTests).
-/// Here rather than beside the More menu in SimpleMode.swift because the widgets compile this file
-/// and not that one.
-enum SimpleMode {
-    /// How recent a tracker mark keeps the Adhan tab's PRAYER TRACKER on screen in Simple Mode: someone
-    /// who tracks sees it, someone who never has is not handed an empty habit tracker on day one.
-    static let trackerWindowDays = 14
-
-    /// How long Ignore quiets the Adhan tab's location and notification dialogs (Abu, 2026-10-10: "for
-    /// ignore snoozing make it wait a day"). Never Ask Again stays permanent.
-    static let nagSnooze: TimeInterval = 86_400
-
-    /// Whether any prayer was marked (on time, late or missed) on today or one of the `days - 1` days
-    /// before it. At most `days` dictionary lookups: the Adhan tab asks on every countdown tick, so
-    /// this never walks the whole history.
-    static func markedRecently(
-        _ tracker: [String: [String: PrayerMark]],
-        today: Date,
-        days: Int = trackerWindowDays,
-        calendar: Calendar = .current,
-        dayKey: (Date) -> String
-    ) -> Bool {
-        guard days > 0, !tracker.isEmpty else { return false }
-        for offset in 0..<days {
-            guard let day = calendar.date(byAdding: .day, value: -offset, to: today) else { continue }
-            if let marks = tracker[dayKey(day)], !marks.isEmpty { return true }
-        }
-        return false
-    }
-
-    /// Whether a dialog snoozed until `until` (seconds since 1970; 0 = never snoozed) is still quiet.
-    static func isSnoozed(until: Double, now: Date) -> Bool {
-        now.timeIntervalSince1970 < until
     }
 }

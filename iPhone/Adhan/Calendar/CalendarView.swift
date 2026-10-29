@@ -2,8 +2,10 @@
 import SwiftUI
 
 struct CalendarView: View {
-    @ObservedObject private var settings = Settings.shared
-
+    private let settings = Settings.shared
+    @ObservedObject private var adhanSettings = AdhanSettings.shared
+    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
+    @ObservedObject private var systemSettings = SystemSettings.shared
     enum DisplayMode: String {
         case events, calendar
     }
@@ -38,22 +40,33 @@ struct CalendarView: View {
     private static let maxHijriYear = 1600
 
     private static let monthSymbols = [
-        "Muharram", "Safar", "Rabi al-Awwal", "Rabi al-Thani",
-        "Jumada al-Ula", "Jumada al-Thani", "Rajab", "Sha'ban",
-        "Ramadan", "Shawwal", "Dhul Qi'dah", "Dhul Hijjah"
+        String(localized: "Muharram"), String(localized: "Safar"), String(localized: "Rabi al-Awwal"), String(localized: "Rabi al-Thani"),
+        String(localized: "Jumada al-Ula"), String(localized: "Jumada al-Thani"), String(localized: "Rajab"), String(localized: "Sha'ban"),
+        String(localized: "Ramadan"), String(localized: "Shawwal"), String(localized: "Dhul Qi'dah"), String(localized: "Dhul Hijjah")
     ]
 
+    /// Each event's Gregorian date. The calendar is set explicitly (a device on the Islamic calendar
+    /// printed a second Hijri date here, and "Copy Gregorian Date" copied it), and the template puts the
+    /// parts in the language's own order ("Monday, March 1, 2027" in English).
     private static let formatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE, MMMM d, yyyy"
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.setLocalizedDateFormatFromTemplate("EEEEMMMMdyyyy")
         return formatter
     }()
+
+    /// A year without a thousands separator ("1448", not "1,448"), in the locale's digits.
+    static func yearText(_ year: Int) -> String {
+        year.formatted(.number.grouping(.never))
+    }
 
     var body: some View {
         applyToolbar(to:
             Group {
                 if mode == .calendar {
+                    // A ScrollView, not a list: the Now Playing bar in a sheet comes from here.
                     HijriMonthCalendarView()
+                        .sheetNowPlayingBar()
                 } else {
                     eventsList
                 }
@@ -205,6 +218,7 @@ struct CalendarView: View {
 
                         yearStepperRow
                             .listRowSeparator(.hidden)
+                            .hiddenInSimple(.calendarFootStepper)
                     }
                 }
                 .themedListRowBackground()
@@ -241,13 +255,16 @@ struct CalendarView: View {
             let unadjusted = settings.hijriCalendar.date(from: components) ?? Date()
             let date = settings.hijriCalendar.date(byAdding: .day, value: -settings.hijriOffset, to: unadjusted) ?? unadjusted
             let monthName = Self.monthSymbols[(components.month ?? 1) - 1]
+            let day = components.day ?? 1
 
             return HijriEventRowModel(
                 id: event.0,
-                title: event.0,
-                subtitle: event.2,
-                description: event.3,
-                hijriDateText: "\(components.day ?? 1) \(monthName), \(String(year)) AH",
+                title: event.0.localizedDisplay,
+                subtitle: event.2.localizedDisplay,
+                description: event.3.localizedDisplay,
+                hijriDateText: String(localized: "\(day) \(monthName), \(Self.yearText(year)) AH"),
+                hijriDay: day.formatted(),
+                hijriMonth: monthName,
                 gregorianDateText: Self.formatter.string(from: date),
                 date: date
             )
@@ -295,19 +312,19 @@ struct CalendarView: View {
         let gregorian = Calendar(identifier: .gregorian)
         let startYear = gregorian.component(.year, from: first)
         let endYear = gregorian.component(.year, from: last)
-        return startYear == endYear ? "≈ \(startYear) CE" : "≈ \(startYear)–\(endYear) CE"
+        return startYear == endYear ? String(localized: "≈ \(Self.yearText(startYear)) CE") : String(localized: "≈ \(Self.yearText(startYear))–\(Self.yearText(endYear)) CE")
     }
 
     @ViewBuilder
     private var yearStepperRow: some View {
         VStack(spacing: 10) {
             HStack(spacing: 12) {
-                yearArrow("chevron.left", enabled: displayedYear > Self.minHijriYear) {
+                yearArrow("chevron.backward", enabled: displayedYear > Self.minHijriYear) {
                     changeYear(by: -1)
                 }
 
                 VStack(spacing: 2) {
-                    Text("\(String(displayedYear)) AH")
+                    Text("\(Self.yearText(displayedYear)) AH")
                         .font(.title3.weight(.semibold))
                         .foregroundColor(.primary)
                         .monospacedDigit()
@@ -320,7 +337,7 @@ struct CalendarView: View {
                 }
                 .frame(maxWidth: .infinity)
 
-                yearArrow("chevron.right", enabled: displayedYear < Self.maxHijriYear) {
+                yearArrow("chevron.forward", enabled: displayedYear < Self.maxHijriYear) {
                     changeYear(by: 1)
                 }
             }
@@ -374,12 +391,12 @@ struct CalendarView: View {
     private var dateOverlayHeader: some View {
         if let hijriDate = settings.hijriDate {
             VStack(spacing: 2) {
-                Text(hijriDate.english)
+                Text(hijriDate.companionLine)
                     .foregroundColor(settings.accentColor.color)
                     .font(.headline)
                     .multilineTextAlignment(.center)
 
-                Text(hijriDate.arabic)
+                Text(hijriDate.arabic.localizedDigits)
                     .foregroundColor(settings.accentColor.color)
                     .font(.subheadline)
                     .multilineTextAlignment(.center)
@@ -415,6 +432,10 @@ private struct HijriEventRowModel {
     let subtitle: String
     let description: String
     let hijriDateText: String
+    /// The badge's two halves, kept apart rather than split back out of `hijriDateText` (whose Arabic
+    /// form has its own comma and digits).
+    let hijriDay: String
+    let hijriMonth: String
     let gregorianDateText: String
     let date: Date
 }
@@ -423,8 +444,9 @@ private struct HijriEventRowModel {
 /// thing you actually scan for), the event and its meaning in the middle, and how far away it is on the right.
 /// Past events grey out; the next one coming up is called out, since that's the only row anyone is looking for.
 private struct HijriEventRow: View {
-    @ObservedObject private var settings = Settings.shared
-
+    private let settings = Settings.shared
+    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
+    @ObservedObject private var systemSettings = SystemSettings.shared
     let row: HijriEventRowModel
     let isPast: Bool
     /// True for the soonest upcoming event - exactly one row in the list.
@@ -437,22 +459,19 @@ private struct HijriEventRow: View {
                                                    to: Calendar.current.startOfDay(for: row.date)).day ?? 0
         switch days {
         case ..<0:  return nil
-        case 0:     return "Today"
-        case 1:     return "Tomorrow"
-        case 2...30: return "in \(days) days"
+        case 0:     return String(localized: "Today")
+        case 1:     return String(localized: "Tomorrow")
+        case 2...30: return String(localized: "in \(days) days")
         default:
             let months = max(days / 30, 1)
-            return months == 1 ? "in 1 month" : "in \(months) months"
+            return months == 1 ? String(localized: "in 1 month") : String(localized: "in \(months) months")
         }
     }
 
-    /// The Hijri day and month, split out of "10 Muharram, 1448 AH" so the badge can stack the number over the
-    /// month name. The year is dropped - the whole list is one year, and the section header already says which.
+    /// The Hijri day and month of "10 Muharram, 1448 AH", so the badge can stack the number over the month
+    /// name. The year is dropped: the whole list is one year, and the section header already says which.
     private var hijriParts: (day: String, month: String) {
-        let parts = row.hijriDateText.split(separator: " ", maxSplits: 1).map(String.init)
-        guard parts.count == 2 else { return (row.hijriDateText, "") }
-        let month = parts[1].split(separator: ",").first.map(String.init) ?? parts[1]
-        return (parts[0], month.trimmingCharacters(in: .whitespaces))
+        (row.hijriDay, row.hijriMonth)
     }
 
     private var accent: Color { settings.accentColor.color }
@@ -511,11 +530,11 @@ private struct HijriEventRow: View {
             Text("Event Actions")
                 .foregroundStyle(.secondary)
 
-            copyButton("Copy Event Name", value: row.title)
-            copyButton("Copy Event Subtitle", value: row.subtitle)
-            copyButton("Copy Event Description", value: row.description)
-            copyButton("Copy Hijri Date", value: row.hijriDateText)
-            copyButton("Copy Gregorian Date", value: row.gregorianDateText)
+            copyButton(String(localized: "Copy Event Name"), value: row.title)
+            copyButton(String(localized: "Copy Event Subtitle"), value: row.subtitle)
+            copyButton(String(localized: "Copy Event Description"), value: row.description)
+            copyButton(String(localized: "Copy Hijri Date"), value: row.hijriDateText)
+            copyButton(String(localized: "Copy Gregorian Date"), value: row.gregorianDateText)
         }
     }
 
@@ -558,7 +577,10 @@ private struct HijriEventRow: View {
 // MARK: - Hijri Month Calendar (grid)
 
 struct HijriMonthCalendarView: View {
-    @ObservedObject private var settings = Settings.shared
+    private let settings = Settings.shared
+    @ObservedObject private var adhanSettings = AdhanSettings.shared
+    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
+    @ObservedObject private var systemSettings = SystemSettings.shared
     @Environment(\.appearance) private var appearance
 
     @State private var displayedYear = 1445
@@ -570,24 +592,26 @@ struct HijriMonthCalendarView: View {
     private static let maxHijriYear = 1600
 
     private static let monthSymbols = [
-        "Muharram", "Safar", "Rabi al-Awwal", "Rabi al-Thani",
-        "Jumada al-Ula", "Jumada al-Thani", "Rajab", "Sha'ban",
-        "Ramadan", "Shawwal", "Dhul Qi'dah", "Dhul Hijjah"
+        String(localized: "Muharram"), String(localized: "Safar"), String(localized: "Rabi al-Awwal"), String(localized: "Rabi al-Thani"),
+        String(localized: "Jumada al-Ula"), String(localized: "Jumada al-Thani"), String(localized: "Rajab"), String(localized: "Sha'ban"),
+        String(localized: "Ramadan"), String(localized: "Shawwal"), String(localized: "Dhul Qi'dah"), String(localized: "Dhul Hijjah")
     ]
 
-    private static let weekdaySymbols = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    private static let weekdaySymbols = [String(localized: "Sun"), String(localized: "Mon"), String(localized: "Tue"), String(localized: "Wed"), String(localized: "Thu"), String(localized: "Fri"), String(localized: "Sat")]
 
+    // Templates, not fixed patterns: "EEEE, MMMM d, yyyy" is the English order (Arabic writes the day
+    // first). The calendar is set before the template, which reads it.
     private static let gregFullFormatter: DateFormatter = {
         let f = DateFormatter()
         f.calendar = Calendar(identifier: .gregorian)
-        f.dateFormat = "EEEE, MMMM d, yyyy"
+        f.setLocalizedDateFormatFromTemplate("EEEEMMMMdyyyy")
         return f
     }()
 
     private static let gregMonthYearFormatter: DateFormatter = {
         let f = DateFormatter()
         f.calendar = Calendar(identifier: .gregorian)
-        f.dateFormat = "MMM yyyy"
+        f.setLocalizedDateFormatFromTemplate("MMMyyyy")
         return f
     }()
 
@@ -626,17 +650,17 @@ struct HijriMonthCalendarView: View {
     /// Year stepper shown above the month stepper for quick year jumps.
     private var yearHeader: some View {
         HStack(spacing: 12) {
-            yearArrow(systemName: "chevron.left", enabled: displayedYear > Self.minHijriYear) {
+            yearArrow(systemName: "chevron.backward", enabled: displayedYear > Self.minHijriYear) {
                 changeYear(by: -1)
             }
 
-            Text("\(String(displayedYear)) AH")
+            Text("\(CalendarView.yearText(displayedYear)) AH")
                 .font(.headline.weight(.semibold))
                 .foregroundColor(.primary)
                 .monospacedDigit()
                 .frame(maxWidth: .infinity)
 
-            yearArrow(systemName: "chevron.right", enabled: displayedYear < Self.maxHijriYear) {
+            yearArrow(systemName: "chevron.forward", enabled: displayedYear < Self.maxHijriYear) {
                 changeYear(by: 1)
             }
         }
@@ -645,7 +669,7 @@ struct HijriMonthCalendarView: View {
     private var monthHeader: some View {
         VStack(spacing: 10) {
             HStack(spacing: 12) {
-                monthArrow(systemName: "chevron.left") { changeMonth(by: -1) }
+                monthArrow(systemName: "chevron.backward") { changeMonth(by: -1) }
 
                 VStack(spacing: 3) {
                     Text(Self.monthSymbols[displayedMonth - 1])
@@ -661,7 +685,7 @@ struct HijriMonthCalendarView: View {
                 }
                 .frame(maxWidth: .infinity)
 
-                monthArrow(systemName: "chevron.right") { changeMonth(by: 1) }
+                monthArrow(systemName: "chevron.forward") { changeMonth(by: 1) }
             }
 
             if !isViewingTodayMonth {
@@ -820,7 +844,7 @@ struct HijriMonthCalendarView: View {
         if let day = day, let gregorian = gregorianDate(forDay: day) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("\(day) \(Self.monthSymbols[displayedMonth - 1]) \(String(displayedYear)) AH")
+                    Text("\(day) \(Self.monthSymbols[displayedMonth - 1]) \(CalendarView.yearText(displayedYear)) AH")
                         .font(.headline)
                         .foregroundColor(settings.accentColor.color)
                     Spacer()
@@ -841,10 +865,10 @@ struct HijriMonthCalendarView: View {
 
                 if let event = event(forDay: day) {
                     Divider()
-                    Text(event.0)
+                    Text(event.0.localizedDisplay)
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(.primary)
-                    Text(event.1)
+                    Text(event.1.localizedDisplay)
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -976,8 +1000,10 @@ struct HijriMonthCalendarView: View {
 /// One month of the Hijri year: its number, its name in English and Arabic, whether it is one of the four sacred
 /// months, and what it is known for. The month you are currently in is tinted so the list orients you at a glance.
 struct HijriMonthRow: View, Equatable {
-    @ObservedObject private var settings = Settings.shared
-
+    private let settings = Settings.shared
+    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
+    @ObservedObject private var islamSettings = IslamSettings.shared
+    @ObservedObject private var quranDisplay = QuranDisplay.shared
     let month: HijriMonth
     let isCurrent: Bool
     // Appearance snapshotted as stored inputs so `==` compares everything the row draws with; the parent
@@ -1011,7 +1037,7 @@ struct HijriMonthRow: View, Equatable {
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(month.english)
+                    Text(month.english.localizedDisplay)
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(.primary)
 

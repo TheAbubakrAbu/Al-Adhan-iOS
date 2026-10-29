@@ -6,39 +6,35 @@ import SwiftUI
 /// Only the six real prayers appear. Jumuah, the traveling-mode pairs and the optional night times inherit
 /// through `SkyPalette.editableKey`, so there is nothing extra to set or keep in sync.
 struct SkyColorsView: View {
-    @ObservedObject var settings = Settings.shared
-
+    private let settings = Settings.shared
+    @ObservedObject private var adhanSettings = AdhanSettings.shared
+    @ObservedObject private var systemSettings = SystemSettings.shared
     /// Which prayer the preview is showing. Follows whichever picker was touched last.
     @State private var previewPrayer = "Fajr"
 
     var body: some View {
         List {
-            Section {
+            Section(header: Text("PREVIEW")) {
                 preview
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                     .listRowBackground(Color.clear)
             }
 
-            Section(header: Text("SKY COLORS")) {
+            Section(header: Text("SKY COLORS"),
+                    footer: Text("These color the sky at the top of the Adhan tab. Friday's Jumuah, the combined traveling prayers and the optional night times follow the prayer they belong to.")) {
                 ForEach(SkyPalette.editablePrayers, id: \.self) { prayer in
                     row(for: prayer)
                 }
-
-                Text("These color the sky at the top of the Adhan tab. Friday's Jumuah, the combined traveling prayers and the optional night times follow the prayer they belong to.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.vertical, 2)
             }
             .themedListRowBackground()
 
             if settings.hasCustomSkyGradients {
-                Section {
+                Section(header: Text("RESET")) {
                     Button(role: .destructive) {
                         settings.hapticFeedback()
                         withAnimation { settings.resetSkyGradients() }
                     } label: {
                         Text("Restore Default Colors")
-                            .font(.subheadline)
                             .frame(maxWidth: .infinity)
                     }
                 }
@@ -62,7 +58,7 @@ struct SkyColorsView: View {
                 .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
         )
         .overlay(alignment: .bottomLeading) {
-            Text(settings.customPrayerName(for: previewPrayer) ?? previewPrayer)
+            Text(settings.customPrayerName(for: previewPrayer) ?? previewPrayer.localizedDisplay)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.white)
                 .padding(10)
@@ -73,7 +69,7 @@ struct SkyColorsView: View {
 
     private func row(for prayer: String) -> some View {
         HStack {
-            Text(settings.customPrayerName(for: prayer) ?? prayer)
+            Text(settings.customPrayerName(for: prayer) ?? prayer.localizedDisplay)
                 .font(.subheadline)
 
             Spacer()
@@ -86,7 +82,7 @@ struct SkyColorsView: View {
         .contentShape(Rectangle())
         .onTapGesture { withAnimation { previewPrayer = prayer } }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(prayer) sky colors, top and bottom")
+        .accessibilityLabel("\(prayer.localizedDisplay) sky colors, top and bottom")
     }
 
     /// `ColorPicker` needs a `Binding<Color>`, but the palette is stored as a hex pair. Reading rebuilds the

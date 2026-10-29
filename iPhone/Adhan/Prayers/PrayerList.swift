@@ -4,7 +4,11 @@ import SwiftUI
 /// color (`accent2`) - the date/location/sky section above it stays on the first. For a one-color accent the
 /// two are the same color and this looks exactly as it always did.
 struct PrayerList: View {
-    @ObservedObject private var settings = Settings.shared
+    private let settings = Settings.shared
+    @ObservedObject private var adhanSettings = AdhanSettings.shared
+    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
+    @ObservedObject private var prayerTracker = PrayerTracker.shared
+    @ObservedObject private var systemSettings = SystemSettings.shared
     /// Prayer times and the location publish from `LiveState`, not `Settings` (see its comment).
     @ObservedObject private var live = LiveState.shared
     @Environment(\.scenePhase) private var scenePhase
@@ -36,12 +40,27 @@ struct PrayerList: View {
     @State private var showOptionalPrayerToggles = false
     @State private var showRakaahGuide = false
 
+    #if os(iOS)
+    /// The moment the clock-change notice is judged at: now, or the day `-adhanToday` names (DEBUG).
+    private var clockNow: Date {
+        #if DEBUG
+        if let today = AdhanDebugClock.today { return today }
+        #endif
+        return Date()
+    }
+    #endif
+
     // New storage key (V2) so every existing user is reset to the new Tiles default, regardless of what
     // they had saved under the old "prayerDisplayMode" key.
     @AppStorage("prayerDisplayModeV2") private var prayerDisplayModeRawValue: String = PrayerDisplayMode.tiles.rawValue
 
+    /// Two tile boards since 2026-10-28 (Abu: "add a second tiles option. First tiles option is the old
+    /// tiles option we have. Second is the one that we have now"): Tiles is the glass board 4.6.5
+    /// shipped, so everyone on the default keeps what they had; Centered Tiles is the welled board
+    /// Tiles wore from 2026-10-26.
     enum PrayerDisplayMode: String, CaseIterable, Identifiable {
         case tiles = "Prayer Tiles"
+        case centeredTiles = "Prayer Centered Tiles"
         case grid = "Prayer Grid"
         case list = "Prayer List"
         case split = "Prayer Split"
@@ -50,22 +69,33 @@ struct PrayerList: View {
 
         var displayName: String {
             switch self {
-            case .tiles: return "TILES"
-            case .grid: return "GRID"
-            case .list: return "LIST"
-            case .split: return "SPLIT"
+            case .tiles: return String(localized: "TILES")
+            case .centeredTiles: return String(localized: "CENTERED TILES")
+            case .grid: return String(localized: "GRID")
+            case .list: return String(localized: "LIST")
+            case .split: return String(localized: "SPLIT")
             }
         }
 
         /// The glyph beside each layout in the Adhan tab's ⋯ More menu (`AdhanView.adhanMoreItems`).
         /// Not `square.grid.2x2.fill`: that symbol's name stood in for a menu item's title under
-        /// VoiceOver once (docs/Simple Mode Guide.md).
+        /// VoiceOver once (Docs/Product/Simple Mode Guide.md).
         var menuSymbol: String {
             switch self {
             case .tiles: return "square.grid.2x2"
+            case .centeredTiles: return "rectangle.grid.2x2"
             case .grid: return "tablecells"
             case .list: return "list.bullet"
             case .split: return "rectangle.split.2x1"
+            }
+        }
+
+        /// The layouts whose rows or tiles carry the notification bell, so an opened prayer's detail
+        /// does not draw a second one.
+        var drawsCellBells: Bool {
+            switch self {
+            case .tiles, .centeredTiles, .list: return true
+            case .grid, .split: return false
             }
         }
     }
@@ -125,10 +155,10 @@ struct PrayerList: View {
         let bell: Settings.PrayerNotificationMode? = showsBell ? settings.notificationMode(for: prayer) : nil
         let isExpanded = expandedPrayerKey == expansionKey(for: prayer)
         var states: [String] = []
-        if isCurrent { states.append("current prayer") }
+        if isCurrent { states.append(String(localized: "current prayer")) }
         if let mark { states.append(Self.spokenMark(mark)) }
         if let bell { states.append(bell.spokenState) }
-        if isExpanded { states.append("expanded") }
+        if isExpanded { states.append(String(localized: "expanded")) }
         return PrayerAccessibility(
             label: "\(name), \(settings.formatDate(prayer.time))",
             value: states.joined(separator: ", "),
@@ -145,9 +175,9 @@ struct PrayerList: View {
     /// The tracker's mark in words (the dot beside the name is colour only).
     private static func spokenMark(_ mark: PrayerMark) -> String {
         switch mark {
-        case .onTime: return "prayed on time"
-        case .late: return "prayed late"
-        case .missed: return "missed"
+        case .onTime: return String(localized: "prayed on time")
+        case .late: return String(localized: "prayed late")
+        case .missed: return String(localized: "missed")
         }
     }
 
@@ -272,7 +302,7 @@ struct PrayerList: View {
     @ViewBuilder
     private var prayerContentStack: some View {
         if isShowingDifferentDay && compareToday {
-            prayerGroupHeader("TODAY")
+            prayerGroupHeader(String(localized: "TODAY"))
             prayerModeContent(prayers: todayPrayers, isComparisonBaseline: true)
                 .opacity(0.45)
 
@@ -282,11 +312,18 @@ struct PrayerList: View {
         // The selected day only highlights a "current" prayer when it is actually today; on any other
         // day the concept doesn't apply, so render its prayers in the neutral primary color.
         prayerModeContent(prayers: displayedPrayers, highlightsCurrent: !isShowingDifferentDay)
-        // Simple Mode (docs/Simple Mode Guide.md): the traveling banner atop the tab already says what
+        #if os(iOS)
+        // A clock change within the week (daylight saving), right under the times it moves: today's
+        // list only, since "today" and "tomorrow" are said from the live day (see ClockChangeNotice.swift).
+        if !isShowingDifferentDay, let change = ClockChange.next(after: clockNow) {
+            ClockChangeFooter(change: change, now: clockNow)
+        }
+        #endif
+        // Simple Mode (Docs/Product/Simple Mode Guide.md): the traveling banner atop the tab already says what
         // the footer says, and other days live in the Prayer Calendar. The stepper stays while another
         // day is on screen, so the list is never left unexplained.
         #if os(iOS)
-        if !settings.simpleMode {
+        if !settings.hides(.travelFooter) {
             travelModeFooter
         }
         #else
@@ -294,7 +331,7 @@ struct PrayerList: View {
         #endif
         optionalPrayersFooter
         #if os(iOS)
-        if !settings.simpleMode || isShowingDifferentDay {
+        if !settings.hides(.dateStepper, unless: isShowingDifferentDay) {
             dateSelectionFooter
         }
         #else
@@ -317,12 +354,12 @@ struct PrayerList: View {
     }
 
     private static let rakaahGuideRows: [RakaahGuideRow] = [
-        .init(name: "Fajr",    arabic: "الفَجر",   fard: "2", primary: ["2 before"],           secondary: []),
-        .init(name: "Dhuhr",   arabic: "الظُهر",   fard: "4", primary: ["4 before", "2 after"], secondary: []),
-        .init(name: "Jumuah",  arabic: "الجُمُعَة",  fard: "2", primary: ["2 after"],            secondary: []),
-        .init(name: "Asr",     arabic: "العَصر",   fard: "4", primary: [],                     secondary: ["4 before"]),
-        .init(name: "Maghrib", arabic: "المَغرِب",  fard: "3", primary: ["2 after"],            secondary: ["2 before"]),
-        .init(name: "Isha",    arabic: "العِشَاء",  fard: "4", primary: ["2 after"],            secondary: ["2 before"]),
+        .init(name: "Fajr",    arabic: "الفَجر",   fard: "2", primary: [String(localized: "2 before")],           secondary: []),
+        .init(name: "Dhuhr",   arabic: "الظُهر",   fard: "4", primary: [String(localized: "4 before"), String(localized: "2 after")], secondary: []),
+        .init(name: "Jumuah",  arabic: "الجُمُعَة",  fard: "2", primary: [String(localized: "2 after")],            secondary: []),
+        .init(name: "Asr",     arabic: "العَصر",   fard: "4", primary: [],                     secondary: [String(localized: "4 before")]),
+        .init(name: "Maghrib", arabic: "المَغرِب",  fard: "3", primary: [String(localized: "2 after")],            secondary: [String(localized: "2 before")]),
+        .init(name: "Isha",    arabic: "العِشَاء",  fard: "4", primary: [String(localized: "2 after")],            secondary: [String(localized: "2 before")]),
     ]
 
     /// The expandable rakaah guide content: every mandatory prayer with its fard count and both
@@ -372,7 +409,7 @@ struct PrayerList: View {
     private func rakaahGuideRow(_ row: RakaahGuideRow) -> some View {
         HStack(alignment: .center, spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(row.name)
+                Text(row.name.localizedDisplay)
                     .font(.caption.weight(.semibold))
 
                 Text(row.arabic)
@@ -381,7 +418,8 @@ struct PrayerList: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(row.fard)
+            // Through the locale ("٢" in Arabic, beside the Arabic names); English still reads "2".
+            Text(Int(row.fard).map { $0.formatted() } ?? row.fard)
                 .font(.caption.monospacedDigit())
                 .frame(width: 34)
 
@@ -400,7 +438,7 @@ struct PrayerList: View {
                     .foregroundColor(.secondary.opacity(0.5))
             } else {
                 ForEach(lines, id: \.self) { line in
-                    Text(line)
+                    Text(line.localizedDigits)
                 }
             }
         }
@@ -426,22 +464,22 @@ struct PrayerList: View {
             footerButtonPair {
                 // Simple Mode keeps the Rakaah Guide (a beginner's question) and leaves Optional Times
                 // to Settings > Prayer Settings > Optional Prayers.
-                if !settings.simpleMode {
-                    footerActionButton("Optional Times", isExpanded: showOptionalPrayerToggles) {
+                if !settings.hides(.optionalTimes) {
+                    footerActionButton(String(localized: "Optional Times"), isExpanded: showOptionalPrayerToggles) {
                         showOptionalPrayerToggles.toggle()
                     }
                 }
 
-                footerActionButton("Rakaah Guide", isExpanded: showRakaahGuide) {
+                footerActionButton(String(localized: "Rakaah Guide"), isExpanded: showRakaahGuide) {
                     showRakaahGuide.toggle()
                 }
             }
 
-            if showOptionalPrayerToggles, !settings.simpleMode {
+            if showOptionalPrayerToggles, !settings.hides(.optionalTimes) {
                 VStack(spacing: 10) {
-                    optionalPrayerToggle("Duhaa", isOn: $settings.showDuha)
-                    optionalPrayerToggle("Islamic Midnight", isOn: $settings.showIslamicMidnight)
-                    optionalPrayerToggle("Last Third of the Night", isOn: $settings.showLastThird)
+                    optionalPrayerToggle(String(localized: "Duhaa"), isOn: $adhanSettings.showDuha)
+                    optionalPrayerToggle(String(localized: "Islamic Midnight"), isOn: $adhanSettings.showIslamicMidnight)
+                    optionalPrayerToggle(String(localized: "Last Third of the Night"), isOn: $adhanSettings.showLastThird)
                 }
 
                 Text("These extra prayer times appear in the app only, never in widgets.")
@@ -464,7 +502,6 @@ struct PrayerList: View {
     private func optionalPrayerToggle(_ label: String, isOn: Binding<Bool>) -> some View {
         Toggle(isOn: isOn.animation(.easeInOut)) {
             Text(label)
-                .font(.subheadline)
         }
         .tint(settings.accentColor.accent2)
         .padding(.vertical, 4)
@@ -488,7 +525,7 @@ struct PrayerList: View {
     /// Settings > Prayer Settings keeps its Prayer Times Layout row.
     private var sectionHeader: some View {
         HStack {
-            SectionIconHeader("PRAYER TIMES", icon: "clock.fill")
+            SectionIconHeader(String(localized: "PRAYER TIMES"), icon: "clock.fill")
 
             #if os(iOS)
             // The combined list labels itself, so a reader who scrolled past the banner still knows why.
@@ -510,6 +547,9 @@ struct PrayerList: View {
             splitContent(prayers: prayers, isComparisonBaseline: isComparisonBaseline, highlightsCurrent: highlightsCurrent)
         case .tiles:
             tilesContent(prayers: prayers, isComparisonBaseline: isComparisonBaseline, highlightsCurrent: highlightsCurrent)
+        case .centeredTiles:
+            tilesContent(prayers: prayers, centered: true, isComparisonBaseline: isComparisonBaseline,
+                         highlightsCurrent: highlightsCurrent)
         }
     }
 
@@ -565,32 +605,31 @@ struct PrayerList: View {
 
     @ViewBuilder
     private func gridContent(prayers: [Prayer], isComparisonBaseline: Bool = false, highlightsCurrent: Bool = true) -> some View {
+        // The 4.6.4 table, back since 2026-10-26 (Abu: "grid and tiles a lot of overlap ... bring back
+        // old grid"): wide gaps, nothing drawn behind a cell. The welled cell of 2026-10-03 is the
+        // Centered Tiles' now (`PrayerCenteredTile`). The current prayer is the plain accent: there is no
+        // tint under it here.
         let columns = Array(
-            repeating: GridItem(.flexible(), spacing: 8),
+            repeating: GridItem(.flexible(), spacing: 12),
             count: prayers.count == 4 ? 2 : 3
         )
-        // The same color rules as the tiles (Abu, 2026-10-01: "make adhan grid and split look better
-        // like from Tilawa"): once per grid, the highlighted prayer, its index and the legible accent.
         let currentName = currentPrayerName
         let currentIndex = prayers.firstIndex { $0.nameTransliteration == live.currentPrayer?.nameTransliteration }
         let accent = settings.accentColor.accent2
-        let textAccent = tileTextAccent(accent)
 
         // Not lazy (`SummaryTileGrid`): a lazy grid in a List row can answer a different height on
         // each self-sizing pass, which iOS 26 traps on.
-        SummaryTileGrid(columns: columns.count, spacing: 8) {
+        SummaryTileGrid(columns: columns.count, spacing: 12) {
             ForEach(Array(prayers.enumerated()), id: \.element.stableDisplayID) { index, prayer in
                 let color: Color = isComparisonBaseline
                     ? .secondary
-                    : (highlightsCurrent ? prayerColor(at: index, currentIndex: currentIndex, accent: textAccent) : .primary)
+                    : (highlightsCurrent ? prayerColor(at: index, currentIndex: currentIndex, accent: accent) : .primary)
                 let isCurrent = highlightsCurrent && !isComparisonBaseline
                     && (currentName?.contains(prayer.nameTransliteration) ?? false)
 
-                PrayerGridTile(
+                PrayerGridCell(
                     prayer: prayer,
                     color: color,
-                    isCurrent: isCurrent,
-                    accent: accent,
                     trackerMark: isComparisonBaseline ? nil : trackerMark(for: prayer)
                 )
                 .contentShape(Rectangle())
@@ -606,7 +645,7 @@ struct PrayerList: View {
                 ))
             }
         }
-        .padding(.horizontal, -6)
+        .padding(.horizontal, -20)
         .lineLimit(1)
         .minimumScaleFactor(0.5)
 
@@ -682,23 +721,23 @@ struct PrayerList: View {
         .frame(maxWidth: .infinity, alignment: .top)
     }
 
+    /// Both tile boards: `centered` picks the welled cell (Centered Tiles) over the glass one (Tiles).
+    /// The grid around them, the colours and the gestures are the same; the watch draws its own tile
+    /// either way.
     @ViewBuilder
-    private func tilesContent(prayers: [Prayer], isComparisonBaseline: Bool = false, highlightsCurrent: Bool = true) -> some View {
+    private func tilesContent(prayers: [Prayer], centered: Bool = false, isComparisonBaseline: Bool = false,
+                              highlightsCurrent: Bool = true) -> some View {
         #if os(watchOS)
         // Tighter on the watch: the icon shares the name's line instead of taking one of its own, and the
         // padding comes down - that's what lets six prayers fit a screen at a readable size.
         let columnCount = 2
         let tileSpacing: CGFloat = 5
-        let tileHorizontalPadding: CGFloat = 7
-        let tileVerticalPadding: CGFloat = 5
         #else
         // Keyed on what is actually RENDERED: the combined Qasr set (4 rows) reads best two-up, but
         // "View Full Prayers" restores the six - which want the normal three columns, not two rows of
         // three stretched tiles with a hole (user rule: full prayers = grid of 3).
         let columnCount = (settings.travelingMode && !fullPrayers) ? 2 : 3
         let tileSpacing: CGFloat = 8
-        let tileHorizontalPadding: CGFloat = 8
-        let tileVerticalPadding: CGFloat = 8
         #endif
         let columns = Array(
             repeating: GridItem(.flexible(), spacing: tileSpacing),
@@ -711,8 +750,8 @@ struct PrayerList: View {
         // The current tile's TEXT; its tint and glow keep the plain accent.
         let textAccent = tileTextAccent(accent)
 
-        // Not wrapped in an iOS 26 `GlassEffectContainer`: tried, and it re-rendered the tiles flatter
-        // and dropped the current tile's glow. The flat pre-26 fill below is the win that matters
+        // Not wrapped in an iOS 26 `GlassEffectContainer`: tried, and it re-rendered the glass tiles
+        // flatter and dropped the current tile's glow. The flat pre-26 fill is the win that matters
         // (the A11-A13 devices that stutter never run iOS 26).
         // Not lazy (`SummaryTileGrid`): a lazy grid in a List row can answer a different height on
         // each self-sizing pass, which iOS 26 traps on.
@@ -724,74 +763,8 @@ struct PrayerList: View {
                 let isCurrent = highlightsCurrent && !isComparisonBaseline
                     && (currentName?.contains(prayer.nameTransliteration) ?? false)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    #if os(watchOS)
-                    HStack(spacing: 3) {
-                        // The 40 mm face leaves a half-width tile about 46 pt for the name beside the
-                        // icon, and "Shurooq" / "Maghrib" truncated there; the icon steps aside on that
-                        // face so the name keeps its size (the time line still carries the tint).
-                        if !WatchScreen.isNarrow {
-                            Image(systemName: prayer.image)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(color)
-                        }
-
-                        // The name owns the line: a fixed-size icon plus layoutPriority keeps a long
-                        // name ("Shurooq") from being the one tile that scales to a sliver while its
-                        // neighbors render full size. 0.8 is a trim, not a shrink.
-                        Text(prayer.compactDisplayName)
-                            .font(.caption.weight(.semibold))
-                            .foregroundColor(color)
-                            .minimumScaleFactor(WatchScreen.isNarrow ? 0.7 : 0.8)
-                            .layoutPriority(1)
-                    }
-
-                    Text(prayer.time, style: .time)
-                        .font(.caption.monospacedDigit())
-                        .foregroundColor(color)
-                        .minimumScaleFactor(0.8)
-                    #else
-                    HStack(alignment: .top) {
-                        Image(systemName: prayer.image)
-                            .font(.subheadline)
-                            .foregroundColor(color)
-
-                        Spacer()
-
-                        if !isComparisonBaseline {
-                            prayerBell(for: prayer, rowColor: color)
-                        }
-                    }
-
-                    HStack(spacing: 5) {
-                        Text(prayer.compactDisplayName)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundColor(color)
-
-                        PrayerMarkDot(mark: isComparisonBaseline ? nil : trackerMark(for: prayer))
-                    }
-
-                    Text(prayer.time, style: .time)
-                        .font(.subheadline.monospacedDigit())
-                        .foregroundColor(color)
-                    #endif
-                }
-                .padding(.horizontal, tileHorizontalPadding)
-                .padding(.vertical, tileVerticalPadding)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                // Only the CURRENT prayer's tile is tinted. The rest are clear, so the one that matters reads
-                // at a glance instead of competing with five other filled boxes.
-                .conditionalGlassEffect(
-                    clear: !isCurrent,
-                    rectangle: true,
-                    useColor: isCurrent ? 0.25 : nil,
-                    customTint: isCurrent ? accent : nil,
-                    flat: true
-                )
-                // The soft accent glow lifts the current prayer's tile off the board - the tint said
-                // "different", the glow says "now".
-                .softShadow(color: isCurrent ? accent.opacity(0.35) : .clear,
-                            radius: isCurrent ? 8 : 0, x: 0, y: 2)
+                tileCell(for: prayer, centered: centered, color: color, isCurrent: isCurrent, accent: accent,
+                         isComparisonBaseline: isComparisonBaseline)
                 .contentShape(Rectangle())
                 .onTapGesture {
                     togglePrayerExpansion(for: prayer)
@@ -821,6 +794,75 @@ struct PrayerList: View {
         expandedPrayerDetail(for: prayers)
     }
 
+    /// One tile of either tile board. iOS: `PrayerGlassTile` (Tiles) or `PrayerCenteredTile` (Centered
+    /// Tiles), both with the bell. The watch keeps its own tighter stack (icon beside the name, caption
+    /// type, the one tinted tile), which is what lets six prayers fit a face at a readable size.
+    @ViewBuilder
+    private func tileCell(for prayer: Prayer, centered: Bool, color: Color, isCurrent: Bool, accent: Color,
+                          isComparisonBaseline: Bool) -> some View {
+        #if os(watchOS)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 3) {
+                // The 40 mm face leaves a half-width tile about 46 pt for the name beside the
+                // icon, and "Shurooq" / "Maghrib" truncated there; the icon steps aside on that
+                // face so the name keeps its size (the time line still carries the tint).
+                if !WatchScreen.isNarrow {
+                    Image(systemName: prayer.image)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(color)
+                }
+
+                // The name owns the line: a fixed-size icon plus layoutPriority keeps a long
+                // name ("Shurooq") from being the one tile that scales to a sliver while its
+                // neighbors render full size. 0.8 is a trim, not a shrink.
+                Text(prayer.compactDisplayName)
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(color)
+                    .minimumScaleFactor(WatchScreen.isNarrow ? 0.7 : 0.8)
+                    .layoutPriority(1)
+            }
+
+            Text(prayer.time, style: .time)
+                .font(.caption.monospacedDigit())
+                .foregroundColor(color)
+                .minimumScaleFactor(0.8)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // Only the CURRENT prayer's tile is tinted. The rest are clear, so the one that matters reads
+        // at a glance instead of competing with five other filled boxes.
+        .conditionalGlassEffect(
+            clear: !isCurrent,
+            rectangle: true,
+            useColor: isCurrent ? 0.25 : nil,
+            customTint: isCurrent ? accent : nil,
+            flat: true
+        )
+        // The soft accent glow lifts the current prayer's tile off the board - the tint said
+        // "different", the glow says "now".
+        .softShadow(color: isCurrent ? accent.opacity(0.35) : .clear,
+                    radius: isCurrent ? 8 : 0, x: 0, y: 2)
+        #else
+        let mark = isComparisonBaseline ? nil : trackerMark(for: prayer)
+        if centered {
+            PrayerCenteredTile(prayer: prayer, color: color, isCurrent: isCurrent, accent: accent,
+                               trackerMark: mark) {
+                if !isComparisonBaseline {
+                    prayerBell(for: prayer, rowColor: color)
+                }
+            }
+        } else {
+            PrayerGlassTile(prayer: prayer, color: color, isCurrent: isCurrent, accent: accent,
+                            trackerMark: mark) {
+                if !isComparisonBaseline {
+                    prayerBell(for: prayer, rowColor: color)
+                }
+            }
+        }
+        #endif
+    }
+
     @ViewBuilder
     private func expandedPrayerDetail(for prayers: [Prayer]) -> some View {
         if let prayer = prayers.first(where: { expansionKey(for: $0) == expandedPrayerKey }) {
@@ -841,7 +883,7 @@ struct PrayerList: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 #if os(iOS)
-                if prayerDisplayMode != .list && prayerDisplayMode != .tiles {
+                if !prayerDisplayMode.drawsCellBells {
                     prayerBell(for: prayer, rowColor: .primary)
                 }
                 #endif
@@ -865,20 +907,20 @@ struct PrayerList: View {
                 travelingModeDescription
 
                 footerButtonPair {
-                    footerActionButton(fullPrayers ? "View Qasr Prayers" : "View Full Prayers") {
+                    footerActionButton(fullPrayers ? String(localized: "View Qasr Prayers") : String(localized: "View Full Prayers")) {
                         withAnimation { settings.travelingShowFullPrayers.toggle() }
                     }
 
                     // The footer explains Qasr but gave no way OUT of it: turning traveling mode off meant
                     // finding the setting by hand. This lands directly on the Traveling Mode screen.
-                    footerActionButton("Travel Settings") {
+                    footerActionButton(String(localized: "Travel Settings")) {
                         showTravelingModeSettings = true
                     }
                 }
                 #endif
 
                 #if os(watchOS)
-                footerActionButton(fullPrayers ? "View Qasr Prayers" : "View Full Prayers") {
+                footerActionButton(fullPrayers ? String(localized: "View Qasr Prayers") : String(localized: "View Full Prayers")) {
                     withAnimation { settings.travelingShowFullPrayers.toggle() }
                 }
 
@@ -904,7 +946,9 @@ struct PrayerList: View {
         VStack {
             // At the accessibility sizes the stepper alone is about a row wide, and the label beside it
             // was squeezed to one letter per line: it gets its own line above the stepper there.
-            if dynamicTypeSize.isAccessibilitySize {
+            // In Arabic too: a long date in the picker (a Hijri date) left the label beside it a column one
+            // word wide. English keeps the row below, as it always had.
+            if dynamicTypeSize.isAccessibilitySize || AppLanguage.isArabicScript {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Showing prayers for")
                         .fixedSize(horizontal: false, vertical: true)
@@ -926,11 +970,11 @@ struct PrayerList: View {
 
             if isShowingDifferentDay {
                 footerButtonPair {
-                    footerActionButton(compareToday ? "Hide Comparison" : "Compare Today") {
+                    footerActionButton(compareToday ? String(localized: "Hide Comparison") : String(localized: "Compare Today")) {
                         compareToday.toggle()
                     }
 
-                    footerActionButton("Back to Today") {
+                    footerActionButton(String(localized: "Back to Today")) {
                         selectedDate = Date()
                     }
                 }
@@ -944,16 +988,16 @@ struct PrayerList: View {
         // The watch has no home city and never decides traveling mode for itself, so it names
         // neither: mentioning a city it does not measure from, and cannot change, only misleads.
         // Traveling mode is set on the phone (or by hand here on a standalone watch).
-        let homeSentence = "Traveling mode is set in the iPhone app."
+        let homeSentence = String(localized: "Traveling mode is set in the iPhone app.")
         #else
         // Names the HOME CITY the 48-mile rule measures from, and points at the exact control that
         // changes it - "customize in settings" alone left the reader hunting (user rule).
-        let homeCity = settings.homeLocation?.city.trimmingCharacters(in: .whitespacesAndNewlines)
+        let homeCity = settings.homeLocation?.displayCity.trimmingCharacters(in: .whitespacesAndNewlines)
         let homeSentence = (homeCity?.isEmpty == false)
-            ? "Your home city is \(homeCity!). You can change it by tapping Travel Settings below."
-            : "You can set your home city by tapping Travel Settings below."
+            ? String(localized: "Your home city is \(homeCity!). You can change it by tapping Travel Settings below.")
+            : String(localized: "You can set your home city by tapping Travel Settings below.")
         #endif
-        return Text("Traveling mode is on. If you are traveling more than 48 mi from home, you can pray Qasr, where you shorten and combine prayers. \(homeSentence)")
+        return Text(String(localized: "Traveling mode is on. If you are traveling more than 48 mi from home, you can pray Qasr, where you shorten and combine prayers. \(homeSentence)").localizedDigits)
             .font(.caption)
             .foregroundColor(.secondary)
             .multilineTextAlignment(.leading)
@@ -1026,7 +1070,7 @@ struct PrayerList: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityValue(isExpanded.map { $0 ? "Expanded" : "Collapsed" } ?? "")
+        .accessibilityValue(isExpanded.map { $0 ? String(localized: "Expanded") : String(localized: "Collapsed") } ?? "")
     }
 
     /// Two footer pills side by side, or stacked once the text is too large for half a row each.
@@ -1112,82 +1156,82 @@ struct PrayerList: View {
         let minutes = Int(next.time.timeIntervalSince(prayer.time) / 60)
         let duration: String
         switch (minutes / 60, minutes % 60) {
-        case (0, let m):        duration = "\(m)m"
-        case (let h, 0):        duration = "\(h)h"
-        case (let h, let m):    duration = "\(h)h \(m)m"
+        case (0, let m):        duration = String(localized: "\(m)m")
+        case (let h, 0):        duration = String(localized: "\(h)h")
+        case (let h, let m):    duration = String(localized: "\(h)h \(m)m")
         }
 
-        return "Until \(next.displayName) at \(settings.formatDate(next.time)) (\(duration))"
+        return String(localized: "Until \(next.displayName) at \(settings.formatDate(next.time)) (\(duration))")
     }
 
     private func prayerReferenceText(for prayer: Prayer) -> String? {
         if prayer.nameTransliteration == "Fajr" {
-            return "Prophet Muhammad (peace be upon him) said: \"The time for Fajr prayer is from the appearance of dawn until the sun begins to rise\" (Sahih Muslim 612)."
+            return String(localized: "Prophet Muhammad (peace be upon him) said: \"The time for Fajr prayer is from the appearance of dawn until the sun begins to rise\" (Sahih Muslim 612).")
         }
 
         // The two combined (qasr) rows MUST be matched before the `contains("Dhuhr")` / `contains("Maghrib")`
         // checks below, which would otherwise swallow them and show the plain Dhuhr / Maghrib hadith - never
         // once naming Asr or Isha, even though those are exactly the prayers being joined into this row.
         if prayer.nameTransliteration == "Dhuhr/Asr" {
-            return """
+            return String(localized: """
             While traveling, Dhuhr and Asr are joined and each is shortened to 2 rak'ah (qasr). Pray Dhuhr first, then Asr immediately after it, in this one time slot.
 
             Anas (may Allah be pleased with him) said: "When the Prophet (peace be upon him) set out on a journey before the sun passed its zenith, he would delay Dhuhr until the time of Asr, then he would stop and join them" (Sahih al-Bukhari 1112).
 
             "And when you travel throughout the land, there is no blame upon you for shortening the prayer" (Quran 4:101).
-            """
+            """)
         }
         if prayer.nameTransliteration == "Maghrib/Isha" {
-            return """
+            return String(localized: """
             While traveling, Maghrib and Isha are joined. Maghrib stays 3 rak'ah (it is never shortened) and Isha is shortened to 2 rak'ah. Pray Maghrib first, then Isha immediately after it, in this one time slot.
 
             Ibn Abbas (may Allah be pleased with him) said: "The Prophet (peace be upon him) used to join Maghrib and Isha when he was traveling" (Sahih al-Bukhari 1108).
 
             "And when you travel throughout the land, there is no blame upon you for shortening the prayer" (Quran 4:101).
-            """
+            """)
         }
 
         if prayer.nameTransliteration.contains("Dhuhr") {
-            return "Prophet Muhammad (peace be upon him) said: \"The time for Dhuhr is when the sun has passed its zenith and a person’s shadow is equal in length to his height, until the time for Asr begins\" (Muslim 612)."
+            return String(localized: "Prophet Muhammad (peace be upon him) said: \"The time for Dhuhr is when the sun has passed its zenith and a person’s shadow is equal in length to his height, until the time for Asr begins\" (Muslim 612).")
         }
         if prayer.nameTransliteration == "Jumuah" {
-            return "Prophet Muhammad (peace be upon him) said: \"The Friday prayer is obligatory upon every Muslim in the time of Dhuhr, except for a child, a woman, or an ill person\" (Abu Dawood 1067)."
+            return String(localized: "Prophet Muhammad (peace be upon him) said: \"The Friday prayer is obligatory upon every Muslim in the time of Dhuhr, except for a child, a woman, or an ill person\" (Abu Dawood 1067).")
         }
         if prayer.nameTransliteration == "Asr" {
-            return "Prophet Muhammad (peace be upon him) said: \"The time for Asr prayer lasts until the sun turns yellow\" (Muslim 612)."
+            return String(localized: "Prophet Muhammad (peace be upon him) said: \"The time for Asr prayer lasts until the sun turns yellow\" (Muslim 612).")
         }
         if prayer.nameTransliteration.contains("Maghrib") {
-            return "Prophet Muhammad (peace be upon him) said: \"The time for Maghrib lasts until the twilight has faded\" (Muslim 612)."
+            return String(localized: "Prophet Muhammad (peace be upon him) said: \"The time for Maghrib lasts until the twilight has faded\" (Muslim 612).")
         }
         if prayer.nameTransliteration == "Isha" {
-            return """
+            return String(localized: """
             Prophet Muhammad (peace be upon him) said: "The time for Isha lasts until the middle of the night" (Muslim 612).
 
             WITR: the night prayer is sealed with Witr, prayed any time after Isha until Fajr. The Prophet (peace and blessings be upon him) said: "Make Witr the last of your prayer at night" (Sahih al-Bukhari 998).
 
             It is an odd number of rak'ah: one, three, five, seven, or nine. The simplest and most common are a single rak'ah, or three. How the three are prayed differs between the madhahib (three joined with one tashahhud, or two then one), and all of these are established. If you fear you will not wake, pray it before you sleep; if you expect to wake, the last third of the night is better.
-            """
+            """)
         }
         if prayer.nameTransliteration == "Duhaa" {
-            return """
+            return String(localized: """
             Duhaa is a voluntary prayer prayed after the sun has risen to the height of a spear, roughly 15 minutes after sunrise, until shortly before Dhuhr. Its best time is later in the morning, when the heat of the sun becomes stronger.
 
             "The forenoon prayer of the penitent is when young camels can feel the heat of the sun" (Muslim 784).
 
             "My friend (the Prophet (ﷺ) ) advised me to observe three things: (1) to fast three days a month; (2) to pray two rak`at of Duha prayer (forenoon prayer); and (3) to pray witr before sleeping." (Bukhari 1981).
-            """
+            """)
         }
         if prayer.nameTransliteration == "Islamic Midnight" {
-            return """
+            return String(localized: """
             Islamic Midnight is halfway between Maghrib and the next Fajr. It marks the end of Isha and is used for calculating parts of the night.
 
             Formula: Islamic Midnight = Maghrib + ((Fajr - Maghrib) / 2)
 
             "When you pray Isha, its time is until half of the night has passed" (Muslim 612a).
-            """
+            """)
         }
         if prayer.nameTransliteration == "Last Third" {
-            return """
+            return String(localized: """
             Tahajjud is commonly prayed during the last third of the night. A voluntary night prayer offered after Isha and before Fajr, its most virtuous time is during the final third of the night.
 
             The final third of the night before Fajr is a blessed time for prayer, dua, and seeking forgiveness.
@@ -1195,7 +1239,7 @@ struct PrayerList: View {
             Formula: Last third starts = Fajr - ((Fajr - Maghrib) / 3)
 
             "Allah descends every night to the lowest heaven when one-third of the first part of the night is over and says: I am the Lord; I am the Lord: who is there to supplicate Me so that I answer him? Who is there to beg of Me so that I grant him? Who is there to beg forgiveness from Me so that I forgive him? He continues like this till the day breaks" (Muslim 758b).
-            """
+            """)
         }
         return nil
     }
@@ -1298,6 +1342,9 @@ struct PrayerList: View {
 
 /// A leaf that observes nothing: the highlight colour comes in as a value from the list, which
 /// already observes `Settings`.
+#if os(iOS)
+#endif
+
 private struct PrayerListRowCard<TrailingContent: View>: View {
     let prayer: Prayer
     let displayName: String
@@ -1357,8 +1404,9 @@ private struct PrayerListRowCard<TrailingContent: View>: View {
 }
 
 private struct PrayerDetailBlock: View {
-    @ObservedObject private var settings = Settings.shared
-
+    private let settings = Settings.shared
+    @ObservedObject private var adhanSettings = AdhanSettings.shared
+    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
     let prayer: Prayer
     let timeWindowText: String?
     let referenceText: String?
@@ -1385,12 +1433,21 @@ private struct PrayerDetailBlock: View {
         }
     }
 
+    /// "Dhuhr (الظُهر): ". In an Arabic interface the name already IS the Arabic one ("الظهر (الظُهر)" said it
+    /// twice), so it stands alone there; a custom Latin name keeps its Arabic beside it.
+    private func componentLabel(_ component: (name: String, arabic: String, time: Date)) -> Text {
+        if AppLanguage.isArabicScript, component.name.isMostlyArabicScript {
+            return Text(verbatim: "\(component.name): ")
+        }
+        return Text("\(component.name) (\(component.arabic)): ")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
                 AccentIconChip(systemImage: prayer.image, tint: settings.accentColor.accent2, size: 26)
 
-                Text(isOptionalPrayer ? prayer.nameEnglish : "\(prayer.nameEnglish) - \(prayer.nameArabic)")
+                Text(isOptionalPrayer ? prayer.nameEnglish.localizedDisplay : "\(prayer.nameEnglish.localizedDisplay) - \(prayer.nameArabic)")
                     .font(.title3)
                     .foregroundColor(settings.accentColor.accent2)
                     .lineLimit(1)
@@ -1414,9 +1471,12 @@ private struct PrayerDetailBlock: View {
             if !components.isEmpty {
                 ForEach(components, id: \.name) { component in
                     (
-                        Text("\(component.name) (\(component.arabic)): ")
+                        componentLabel(component)
                             + Text(component.time, style: .time)
                     )
+                    // Led right to left in Arabic: the label key is all arguments and punctuation, so
+                    // nothing set the line's direction and the time drew before the name.
+                    .rightToLeftLine()
                     .foregroundColor(.primary)
                     .font(.footnote)
                     .lineLimit(1)
@@ -1440,19 +1500,19 @@ private struct PrayerDetailBlock: View {
                     .font(.footnote)
             } else {
                 if prayer.rakah != "0" {
-                    Text("Prayer Rakahs: \(prayer.rakah)")
+                    Text("Prayer Rakahs: \(prayer.rakah.localizedDisplay.localizedDigits)")
                         .foregroundColor(.primary)
                         .font(.body)
                 }
 
                 if prayer.sunnahBefore != "0" {
-                    Text("Sunnah Rakahs Before: \(prayer.sunnahBefore)")
+                    Text("Sunnah Rakahs Before: \(prayer.sunnahBefore.localizedDisplay.localizedDigits)")
                         .foregroundColor(.secondary)
                         .font(.footnote)
                 }
 
                 if prayer.sunnahAfter != "0" {
-                    Text("Sunnah Rakahs After: \(prayer.sunnahAfter)")
+                    Text("Sunnah Rakahs After: \(prayer.sunnahAfter.localizedDisplay.localizedDigits)")
                         .foregroundColor(.secondary)
                         .font(.footnote)
                 }
@@ -1461,7 +1521,7 @@ private struct PrayerDetailBlock: View {
             // The sunnah caveat rides on the Prayer value (today only Jumuah's masjid/home split), so
             // this block needs no per-prayer name compare and new caveats need no view change.
             if let sunnahNote = prayer.sunnahNote {
-                Text(sunnahNote)
+                Text(sunnahNote.localizedDisplay)
                     .foregroundColor(.secondary)
                     .font(.caption2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1489,7 +1549,7 @@ private struct PrayerDetailBlock: View {
             }
 
             if let referenceText {
-                Text(referenceText)
+                Text(referenceText.localizedDigits)
                     .foregroundColor(.secondary)
                     .font(.caption)
                     .lineLimit(nil)
@@ -1539,9 +1599,9 @@ private extension Settings.PrayerNotificationMode {
     /// The bell in words, for VoiceOver (the glyph alone was the only carrier).
     var spokenState: String {
         switch self {
-        case .off: return "notifications off"
-        case .atTime: return "notification on"
-        case .preNotification: return "prenotification on"
+        case .off: return String(localized: "notifications off")
+        case .atTime: return String(localized: "notification on")
+        case .preNotification: return String(localized: "prenotification on")
         }
     }
 }
@@ -1552,19 +1612,79 @@ private extension Prayer {
     }
 
     var compactDisplayName: String {
-        nameTransliteration == "Islamic Midnight" ? "Midnight" : nameTransliteration
+        nameTransliteration == "Islamic Midnight" ? String(localized: "Midnight") : nameTransliteration.localizedDisplay
     }
 }
 
-/// One cell of the Grid layout: icon over name over time, centred, in a rounded well. The current
-/// prayer's well takes the accent (fill, hairline, glow); the rest are a faint neutral well so the
-/// board reads as a grid instead of floating text (the Tilawa grid, 2026-10-01).
-private struct PrayerGridTile: View {
+/// One tile of the Tiles layout, the default board as 4.6.5 shipped it: the icon and the bell across
+/// the top, then the name and the time, all leading, on clear glass. Only the CURRENT prayer's tile is
+/// tinted, so the one that matters reads at a glance instead of competing with five other filled
+/// boxes, and its soft accent glow lifts it off the board (the tint says "different", the glow says
+/// "now"). Gone from 2026-10-26 to 2026-10-28, when `PrayerCenteredTile` stood in for it.
+private struct PrayerGlassTile<Bell: View>: View {
     let prayer: Prayer
     let color: Color
     let isCurrent: Bool
     let accent: Color
     var trackerMark: PrayerMark? = nil
+    @ViewBuilder let bell: () -> Bell
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .top) {
+                Image(systemName: prayer.image)
+                    .font(.subheadline)
+                    .foregroundColor(color)
+                    .accessibilityHidden(true)
+
+                Spacer()
+
+                bell()
+            }
+
+            HStack(spacing: 5) {
+                Text(prayer.compactDisplayName)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(color)
+
+                // The tracker is the phone's; the watch compiles this struct but never draws it.
+                #if os(iOS)
+                PrayerMarkDot(mark: trackerMark)
+                #endif
+            }
+
+            Text(prayer.time, style: .time)
+                .font(.subheadline.monospacedDigit())
+                .foregroundColor(color)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .conditionalGlassEffect(
+            clear: !isCurrent,
+            rectangle: true,
+            useColor: isCurrent ? 0.25 : nil,
+            customTint: isCurrent ? accent : nil,
+            flat: true
+        )
+        .softShadow(color: isCurrent ? accent.opacity(0.35) : .clear,
+                    radius: isCurrent ? 8 : 0, x: 0, y: 2)
+    }
+}
+
+/// One tile of the Centered Tiles layout: icon over name over time, centred in a rounded well. The
+/// current prayer's well takes the accent (fill, hairline, glow); the rest are a faint neutral well so
+/// the board reads as one grid instead of floating text. This was the Grid layout's cell from
+/// 2026-10-03 (the Tilawa grid) until 2026-10-26, when Abu asked for the tiles to be "inspired from
+/// grid too" and the Grid to go back to its flat table (`PrayerGridCell`); it was the Tiles' cell
+/// until 2026-10-28, when the glass tile (`PrayerGlassTile`) came back as Tiles and this one became a
+/// layout of its own. The bell keeps its corner, as on the glass tile.
+private struct PrayerCenteredTile<Bell: View>: View {
+    let prayer: Prayer
+    let color: Color
+    let isCurrent: Bool
+    let accent: Color
+    var trackerMark: PrayerMark? = nil
+    @ViewBuilder let bell: () -> Bell
 
     var body: some View {
         VStack(alignment: .center, spacing: 4) {
@@ -1578,6 +1698,7 @@ private struct PrayerGridTile: View {
                     .font(.subheadline.weight(isCurrent ? .heavy : .bold))
                     .foregroundColor(color)
 
+                // The tracker is the phone's; the watch compiles this struct but never draws it.
                 #if os(iOS)
                 PrayerMarkDot(mark: trackerMark)
                 #endif
@@ -1590,7 +1711,46 @@ private struct PrayerGridTile: View {
         .padding(.vertical, 12)
         .padding(.horizontal, 6)
         .frame(maxWidth: .infinity)
+        // The bell in the tile's top-trailing corner, clear of the centred icon: the stack keeps its
+        // centre whether or not a bell is drawn (the comparison baseline draws none).
+        .overlay(alignment: .topTrailing) {
+            bell()
+                .padding(2)
+        }
         .background(PrayerCellWell(isCurrent: isCurrent, accent: accent, cornerRadius: 14))
+    }
+}
+
+/// One cell of the Grid layout: the flat table of 4.6.4, back since 2026-10-26 (Abu: "bring back old
+/// grid"). Icon and bold name on one centred line, the time under it, nothing drawn behind them; the
+/// board's air is the wide gaps. The current prayer is the accent and the past ones dim, the rule every
+/// layout shares, and the tracker dot stays beside the name. No bell and no well: those are the Tiles'.
+private struct PrayerGridCell: View {
+    let prayer: Prayer
+    let color: Color
+    var trackerMark: PrayerMark? = nil
+
+    var body: some View {
+        VStack(alignment: .center, spacing: 2) {
+            HStack(spacing: 4) {
+                Image(systemName: prayer.image)
+                    .font(.subheadline)
+                    .padding([.trailing, .bottom], -2)
+                    .accessibilityHidden(true)
+
+                Text(prayer.compactDisplayName)
+                    .font(.subheadline.weight(.bold))
+
+                #if os(iOS)
+                PrayerMarkDot(mark: trackerMark)
+                #endif
+            }
+
+            Text(prayer.time, style: .time)
+                .font(.subheadline.monospacedDigit())
+        }
+        .foregroundColor(color)
+        .frame(maxWidth: .infinity)
     }
 }
 

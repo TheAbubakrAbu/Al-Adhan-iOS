@@ -6,8 +6,9 @@ import SwiftUI
 /// preferences, the optional-prayer set, Siri's search keys and the scrubber's highlight all key off it.
 /// Names live in the app group, so widgets and the Watch render them too.
 struct CustomPrayerNamesSection: View {
-    @ObservedObject var settings = Settings.shared
-
+    private let settings = Settings.shared
+    @ObservedObject private var adhanSettings = AdhanSettings.shared
+    @ObservedObject private var systemSettings = SystemSettings.shared
     /// Edited locally and committed on blur. Writing straight through on every keystroke would recompute
     /// prayer times and reschedule notifications once per typed character.
     @State private var drafts: [String: String] = [:]
@@ -18,19 +19,15 @@ struct CustomPrayerNamesSection: View {
     }
 
     var body: some View {
-        Section(header: Text("CUSTOM PRAYER NAMES")) {
+        Section(header: Text("CUSTOM PRAYER NAMES"),
+                footer: Text("Renaming a prayer only changes how it is displayed: in the app, its notifications, the widgets and on your Apple Watch. Leave a field blank to use the default spelling.")) {
             ForEach(Settings.renameablePrayerNames, id: \.self) { prayer in
                 row(for: prayer)
             }
-
-            Text("Renaming a prayer only changes how it is displayed: in the app, its notifications, the widgets and on your Apple Watch. Leave a field blank to use the default spelling.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .padding(.vertical, 2)
         }
 
         if hasAnyCustomName {
-            Section {
+            Section(header: Text("RESET")) {
                 Button(role: .destructive) {
                     settings.hapticFeedback()
                     focusedPrayer = nil
@@ -38,7 +35,6 @@ struct CustomPrayerNamesSection: View {
                     withAnimation { settings.customPrayerNames = [:] }
                 } label: {
                     Text("Reset to Default Names")
-                        .font(.subheadline)
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -47,12 +43,12 @@ struct CustomPrayerNamesSection: View {
 
     private func row(for prayer: String) -> some View {
         HStack {
-            Text(prayer)
+            Text(prayer.localizedDisplay)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .frame(width: 84, alignment: .leading)
 
-            TextField(prayer, text: draft(for: prayer))
+            TextField(prayer.localizedDisplay, text: draft(for: prayer))
                 .font(.subheadline)
                 .multilineTextAlignment(.trailing)
                 .autocorrectionDisabled()
@@ -84,7 +80,7 @@ struct CustomPrayerNamesSection: View {
         // A name identical to the default, or an empty one, is stored as "no custom name" rather than as a
         // redundant entry - that keeps `hasAnyCustomName` and the reset button honest.
         var names = settings.customPrayerNames
-        if trimmed.isEmpty || trimmed == prayer {
+        if trimmed.isEmpty || trimmed == prayer || trimmed == prayer.localizedDisplay {
             guard names[prayer] != nil else { return }
             names.removeValue(forKey: prayer)
         } else {

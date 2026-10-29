@@ -90,6 +90,9 @@ struct AlAdhanApp: App {
                 // the key's one-time launch snapshot, so an accent change only showed after a restart.
                 .appearanceEnvironment()
                 .appReviewPrompt()
+                // A newer version on the App Store is offered when the app opens (AppUpdateCheck.swift);
+                // it waits for the reveal and for the screen to be free, like the review ask above.
+                .appUpdatePrompt()
                 // Set ABOVE (outside) `.appReviewPrompt()` too, or its `@Environment(\.appRevealed)`
                 // reads the key's default (true): the copy inside `rootContent` sits BELOW the review
                 // modifier in the tree, and environment only flows down - the launch-cover gate on the
@@ -205,6 +208,8 @@ private struct MainTabView: View {
     // subscription re-evaluated the ENTIRE TabView (all three tabs) on every publish - Settings
     // publishes on every GPS fix and countdown tick. `warmUnderCover` reaches the singleton directly.
     private let settings = Settings.shared
+    /// The one slice this body reads (`launchTab`).
+    @ObservedObject private var systemSettings = SystemSettings.shared
     /// True while a launch/splash screen still covers the tabs (drives the under-cover warm below).
     let isCovered: Bool
 

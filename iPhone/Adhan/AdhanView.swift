@@ -3,7 +3,11 @@ import CoreLocation
 import UserNotifications
 
 struct AdhanView: View {
-    @ObservedObject var settings = Settings.shared
+    private let settings = Settings.shared
+    @ObservedObject private var adhanSettings = AdhanSettings.shared
+    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
+    @ObservedObject private var prayerTracker = PrayerTracker.shared
+    @ObservedObject private var systemSettings = SystemSettings.shared
     /// Prayer times and the location publish from `LiveState`, not `Settings` (see its comment).
     @ObservedObject private var live = LiveState.shared
 
@@ -18,8 +22,16 @@ struct AdhanView: View {
     /// sheet was built with the target still at its old value (logged 2026-09-05), whereas an item
     /// sheet hands the content the exact value that presented it.
     @State private var settingsSheet: SettingsSheetTarget?
-    /// The sheet a glance tile opened, if any.
-    @State private var glanceSheet: GlanceSheet?
+    /// The sheet a glance tile opened, if any. DEBUG launch argument `-openQiblaSheet` opens the 220 pt
+    /// Qibla sheet on launch, the same way `-showBigQibla` expands the row compass (taps are not
+    /// scriptable in the simulator).
+    @State private var glanceSheet: GlanceSheet? = {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-openQiblaSheet") ? .qibla(bearing: nil, distance: nil) : nil
+        #else
+        nil
+        #endif
+    }()
     /// The calendar a glance tile pushed, if any (the two calendars are pushes, like the toolbar's).
     @State private var pushedCalendar: GlancePush?
     #endif
@@ -168,12 +180,15 @@ struct AdhanView: View {
         }
     }
 
-    /// Simple Mode shows the tracker to someone who tracks: any prayer marked in the last
-    /// `SimpleMode.trackerWindowDays` (docs/Simple Mode Guide.md). Marking one from a prayer's detail
-    /// brings it back. At most fourteen lookups into the cached tracker, so the countdown tick can ask.
+    /// The reader's own choice (Prayer Settings' ON THE ADHAN TAB switch, or the folded header's trash),
+    /// else the default: shown, except that Simple Mode shows it only to someone who marked a prayer in
+    /// the last `SimpleMode.trackerWindowDays` (TabSections.swift, `TabSection.simpleModeHides`). The
+    /// watch has no tracker section.
+    #if os(iOS)
     private var showsTracker: Bool {
-        !settings.simpleMode || settings.trackerMarkedRecently()
+        settings.showsTabSection(.adhanTracker)
     }
+    #endif
 
     #if os(iOS)
     /// The sky under the whole tab (`Settings.skyFillsAdhanTab`, SkyPageBackground.swift): only with
@@ -192,11 +207,11 @@ struct AdhanView: View {
     /// other"), the current one ticked inside it and named under the row.
     @ViewBuilder
     private var adhanMoreItems: some View {
-        TabMoreMenuItem("Prayer Calendar", systemImage: "calendar") {
+        TabMoreMenuItem(String(localized: "Prayer Calendar"), systemImage: "calendar") {
             settings.hapticFeedback()
             if pushedCalendar == nil { pushedCalendar = .prayerCalendar }
         }
-        TabMoreMenuItem("Hijri Calendar", systemImage: "moon.stars") {
+        TabMoreMenuItem(String(localized: "Hijri Calendar"), systemImage: "moon.stars") {
             settings.hapticFeedback()
             if pushedCalendar == nil { pushedCalendar = .hijriCalendar }
         }
@@ -237,18 +252,6 @@ struct AdhanView: View {
         List {
             Group {
                 #if os(iOS)
-                // Traveling mode leads the tab, above the date and the sky: readers who missed the
-                // caption under the list took the four combined prayers for a bug (see
-                // TravelingModeBanner.swift).
-                if settings.travelingMode {
-                    Section {
-                        TravelingModeBanner(openTravelSettings: { settingsSheet = .travelingMode })
-                            .listRowInsets(EdgeInsets())
-                            .listRowBackground(Color.clear)
-                    }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-
                 // Date/location and the sky are their own sections again - sharing one made the sky's rounded
                 // card fight the rows above it. `compactListSectionSpacing` below closes the gap between them
                 // so they still read as one stacked header rather than two floating islands.
@@ -283,11 +286,15 @@ struct AdhanView: View {
                 // See HelpDoors.swift.
                 HelpDoorsSection(area: .adhan)
 
-                // Simple Mode leaves the glance wall out: each tile is a shortcut to a door the tab
-                // already has (the calendar button, the compass, the city pill, the sky's moon).
-                if !settings.simpleMode {
-                    Section(header: SectionIconHeader("AT A GLANCE", icon: "rectangle.grid.2x2.fill")) {
-                        GlanceCard(onSelect: handleGlance)
+                // The glance wall folds from its header and can be put away (TabSections.swift).
+                // Simple Mode leaves it out until Prayer Settings turns it on: each tile is a shortcut
+                // to a door the tab already has (the calendar button, the compass, the city pill, the
+                // sky's moon). Folded, the card is not in the List at all.
+                if settings.showsTabSection(.adhanGlance) {
+                    Section(header: TabSectionHeader(.adhanGlance)) {
+                        if settings.tabSectionExpanded(.adhanGlance) {
+                            GlanceCard(onSelect: handleGlance)
+                        }
                     }
                 }
                 #else
@@ -443,11 +450,10 @@ struct AdhanView: View {
         .sheet(item: $glanceSheet) { sheet in
             switch sheet {
             case .cityPrayerTimes:
-                NavigationView {
+                SheetNavigationContainer {
                     PrayerTimesMapView()
                         .environmentObject(settings)
                 }
-                .navigationViewStyle(.stack)
                 .smallMediumSheetPresentation()
             case .homeLocation:
                 MapView(choosingPrayerTimes: false)
@@ -490,6 +496,13 @@ struct AdhanView: View {
             Task { @MainActor in
                 await AppReveal.waitUntilRevealed()
                 try? await Task.sleep(nanoseconds: 700_000_000)
+                // A launch dialog (the calculation or traveling card, a permission question) can be up
+                // for the first second or two after the reveal, and a sheet raised under it is refused
+                // by UIKit ("Attempt to present ... which is already presenting"): wait for the screen
+                // to be free, as the real tap on a tile always is.
+                for _ in 0..<40 where ModalPresence.isPresenting {
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                }
                 handleGlance(action)
             }
         }
@@ -560,7 +573,18 @@ struct AdhanView: View {
                 PrayerCountdown()
                     .equatable()
             }
+            // The Islamic date under way or coming this week, first beneath the countdown (Abu,
+            // 2026-10-25: "when an event is coming or its an event put it in adhan ... above or below
+            // prayer countdown"). See IslamicEventBanner.swift.
+            eventSection
+            // Traveling mode sits right under the countdown, above the list it explains - one compact
+            // row (Abu, 2026-10-19: "smaller and simpler ... before or after prayer countdown"; it was
+            // a loud card leading the whole tab). With the sky on, the countdown rides in the sky
+            // card, so this is the first row beneath it either way.
+            travelingSection
             PrayerList()
+        } else {
+            travelingSection
         }
         #else
         if live.prayers != nil {
@@ -570,6 +594,50 @@ struct AdhanView: View {
         }
         #endif
     }
+
+    #if os(iOS)
+    /// The event row: today's or this week's Islamic date, opening the Hijri calendar (the same push
+    /// the Moon and Next Islamic Date tiles make). Nothing near, no row.
+    @ViewBuilder
+    private var eventSection: some View {
+        let moment = eventMoment
+        if let occurrence = IslamicEventBanner.occurrence(now: moment.reference, nightsBegun: moment.nightsBegun,
+                                                          settings: settings) {
+            Section {
+                IslamicEventBanner(occurrence: occurrence) { handleGlance(.hijriCalendar) }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+            }
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+    }
+
+    /// The Hijri reference moment the banner reads the day from: after Maghrib with the date switch
+    /// on it is already tomorrow, as the date row above says, and tonight's night has begun
+    /// (`nightsBegun`). `-adhanToday` stands in for now (DEBUG).
+    private var eventMoment: (reference: Date, nightsBegun: Bool) {
+        var now = Date()
+        #if DEBUG
+        if let today = AdhanDebugClock.today { now = today }
+        #endif
+        let reference = settings.effectiveHijriReferenceDate(now: now)
+        return (reference, reference != now)
+    }
+
+    /// The traveling-mode row: what Qasr changed, how far from home, and the door to Travel Settings
+    /// (see TravelingModeBanner.swift). "View Full Prayers" stays in the footer under the list.
+    @ViewBuilder
+    private var travelingSection: some View {
+        if settings.travelingMode {
+            Section {
+                TravelingModeBanner(openTravelSettings: { settingsSheet = .travelingMode })
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+            }
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+    }
+    #endif
 
     #if os(watchOS)
     /// The watch's traveling-mode lead: plane, the mode's name and what it does, on a solid accent row.
@@ -612,7 +680,7 @@ struct AdhanView: View {
                     if let hijriDate = settings.hijriDate {
                         // Two lines before any shrink: a long Hijri date used to compress to 60% on one
                         // line, which read as unreadably tiny on the small screens.
-                        Text(hijriDate.english)
+                        Text(hijriDate.interfaceLine)
                             .font(showBigQibla ? .system(size: 9) : .caption2)
                             .foregroundColor(settings.accentColor.accent1)
                             .lineLimit(showBigQibla ? 1 : 2)
@@ -624,7 +692,7 @@ struct AdhanView: View {
                             .font(showBigQibla ? .system(size: 9) : .caption2)
                             .foregroundColor(settings.accentColor.accent1)
 
-                        Text((live.prayers != nil ? live.currentLocation?.city : nil) ?? "No location")
+                        Text((live.prayers != nil ? live.currentLocation?.displayCity : nil) ?? String(localized: "No location"))
                             .font(showBigQibla ? .system(size: 10) : .caption)
                             .lineLimit(showBigQibla ? 1 : 2)
                             .minimumScaleFactor(0.8)
@@ -840,9 +908,9 @@ struct AdhanView: View {
         if let card = autoChangeCard { return card.title }
         switch showAlert {
         case .locationAlert:
-            return "Location Access Needed"
+            return String(localized: "Location Access Needed")
         case .notificationAlert:
-            return "Notifications Off"
+            return String(localized: "Notifications Off")
         default:
             return ""
         }
@@ -952,8 +1020,9 @@ struct AdhanView: View {
 }
 
 private struct DateAndLocationSection: View {
-    @ObservedObject private var settings = Settings.shared
-
+    private let settings = Settings.shared
+    @ObservedObject private var adhanSettings = AdhanSettings.shared
+    @ObservedObject private var systemSettings = SystemSettings.shared
     @Binding var showBigQibla: Bool
 
     var body: some View {
@@ -977,7 +1046,9 @@ private struct DateAndLocationSection: View {
 }
 
 private struct HijriDateRow: View {
-    @ObservedObject private var settings = Settings.shared
+    private let settings = Settings.shared
+    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
+    @ObservedObject private var systemSettings = SystemSettings.shared
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let hijriDate: HijriDate
@@ -1020,21 +1091,23 @@ private struct HijriDateRow: View {
 
                 Button {
                     settings.hapticFeedback()
-                    UIPasteboard.general.string = hijriDate.english
+                    UIPasteboard.general.string = hijriDate.companionLine
                 } label: {
-                    Label("Copy English Date", systemImage: "doc.on.doc")
+                    Label(hijriDate.companionCopyTitle, systemImage: "doc.on.doc")
                 }
 
                 Button {
                     settings.hapticFeedback()
                     UIPasteboard.general.string = hijriDate.arabic
                 } label: {
-                    Label("Copy Arabic Date", systemImage: "doc.on.doc")
+                    // In Arabic every date on the row is Arabic: this one is named for its calendar.
+                    Label(AppLanguage.isArabicScript ? String(localized: "Copy Hijri Date") : String(localized: "Copy Arabic Date"),
+                          systemImage: "doc.on.doc")
                 }
             }
         }
         #else
-        Text(hijriDate.english)
+        Text(hijriDate.interfaceLine)
             .font(.footnote)
             .foregroundColor(settings.accentColor.color)
             .frame(maxWidth: .infinity, alignment: .center)
@@ -1042,14 +1115,15 @@ private struct HijriDateRow: View {
     }
 
     #if os(iOS)
+    /// The English Hijri date; in an Arabic interface, today's Gregorian date (`HijriDate.companionLine`).
     private var englishDate: some View {
-        Text(hijriDate.english)
+        Text(hijriDate.companionLine)
             .font(.footnote.weight(.semibold))
             .foregroundColor(.primary)
     }
 
     private var arabicDate: some View {
-        Text(hijriDate.arabic)
+        Text(hijriDate.arabic.localizedDigits)
             .font(.footnote)
             .foregroundColor(settings.accentColor.color)
     }
@@ -1057,7 +1131,9 @@ private struct HijriDateRow: View {
 }
 
 private struct CurrentLocationRow: View {
-    @ObservedObject private var settings = Settings.shared
+    private let settings = Settings.shared
+    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
+    @ObservedObject private var systemSettings = SystemSettings.shared
     /// Prayer times and the location publish from `LiveState`, not `Settings` (see its comment).
     @ObservedObject private var live = LiveState.shared
 
@@ -1148,11 +1224,10 @@ private struct CurrentLocationRow: View {
         }
         #endif
         .sheet(isPresented: $showingPrayerTimesMap) {
-            NavigationView {
+            SheetNavigationContainer {
                 PrayerTimesMapView()
                     .environmentObject(settings)
             }
-            .navigationViewStyle(.stack)
             .smallMediumSheetPresentation()
         }
         #endif
@@ -1162,7 +1237,7 @@ private struct CurrentLocationRow: View {
     private var locationLabel: some View {
         #if os(iOS)
         if let currentLoc = live.currentLocation {
-            let currentCity = currentLoc.city
+            let currentCity = currentLoc.displayCity
 
             Button {
                 settings.hapticFeedback()
@@ -1185,7 +1260,7 @@ private struct CurrentLocationRow: View {
 
                             Button {
                                 settings.hapticFeedback()
-                                UIPasteboard.general.string = currentCity
+                                UIPasteboard.general.string = currentLoc.city.cityDisplay
                             } label: {
                                 Label("Copy City Name", systemImage: "doc.on.doc")
                             }
@@ -1196,10 +1271,11 @@ private struct CurrentLocationRow: View {
                                location.latitude != 1000, location.longitude != 1000 {
                                 Button {
                                     settings.hapticFeedback()
-                                    UIPasteboard.general.string = formatCoordinates(
-                                        latitude: location.latitude,
-                                        longitude: location.longitude
-                                    )
+                                    // In Arabic the formatted line carries direction marks and Arabic
+                                    // digits no other app can read: copy the plain pair there.
+                                    UIPasteboard.general.string = AppLanguage.isArabicScript
+                                        ? "\(location.latitude), \(location.longitude)"
+                                        : formatCoordinates(latitude: location.latitude, longitude: location.longitude)
                                 } label: {
                                     Label("Copy Coordinates", systemImage: "location.circle")
                                 }
@@ -1229,7 +1305,7 @@ private struct CurrentLocationRow: View {
         #else
         Group {
             if live.prayers != nil, let currentLoc = live.currentLocation {
-                Text(currentLoc.city)
+                Text(currentLoc.displayCity)
             } else {
                 Text("No location")
             }
@@ -1329,10 +1405,18 @@ private struct CurrentLocationRow: View {
 ///
 /// Free function, not a static on `CurrentLocationRow`: that row is `private` and iOS-only, and the watch's
 /// enlarged-compass card needs this too.
+///
+/// One localized key, so Arabic can put its own comma between the two halves; each number keeps its degree
+/// sign on the correct side there (`SymbolNumber`: isolated, in the locale's digits). Every part is an
+/// argument, so the line has no Arabic letter outside its isolates and is led right to left explicitly
+/// (`SymbolNumber.rightToLeftLine`): without that, Arabic drew the longitude first.
 func formatCoordinates(latitude: Double, longitude: Double) -> String {
-    let latDir = latitude >= 0 ? "N" : "S"
-    let lonDir = longitude >= 0 ? "E" : "W"
-    return String(format: "%.4f° %@, %.4f° %@", abs(latitude), latDir, abs(longitude), lonDir)
+    let latDir = latitude >= 0 ? String(localized: "N") : String(localized: "S")
+    let lonDir = longitude >= 0 ? String(localized: "E") : String(localized: "W")
+    let lat = SymbolNumber.degrees(abs(latitude), places: 4)
+    let lon = SymbolNumber.degrees(abs(longitude), places: 4)
+    return SymbolNumber.rightToLeftLine(String(localized: "\(lat) \(latDir), \(lon) \(lonDir)",
+                  comment: "Coordinates: latitude with degree sign, N or S, then longitude with degree sign, E or W"))
 }
 
 /// An altitude in metres as e.g. "1,204 ft · 367 m above sea level". Both units, feet first: the one
@@ -1356,8 +1440,9 @@ func formatElevation(metres: Double) -> String {
     let number = elevationNumberFormatter
     let feetText = number.string(from: NSNumber(value: abs(feet).rounded())) ?? "0"
     let metresText = number.string(from: NSNumber(value: abs(metres).rounded())) ?? "0"
-    let suffix = metres < 0 ? "below sea level" : "above sea level"
-    return "\(feetText) ft · \(metresText) m \(suffix)"
+    return metres < 0
+        ? String(localized: "\(feetText) ft · \(metresText) m below sea level")
+        : String(localized: "\(feetText) ft · \(metresText) m above sea level")
 }
 
 
@@ -1447,13 +1532,13 @@ private enum GlanceSheet: Identifiable {
 /// The Qibla and Distance to Makkah tiles' sheet: the big compass over the two lines the tiles showed.
 /// At this size `QiblaView` starts the heading updates and the GPS refinement burst by itself.
 private struct QiblaSheet: View {
-    @ObservedObject private var settings = Settings.shared
-
+    private let settings = Settings.shared
+    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
     let bearing: String?
     let distance: String?
 
     var body: some View {
-        NavigationView {
+        SheetNavigationContainer {
             VStack(spacing: 18) {
                 QiblaView(size: 220)
                     .padding(.top, 12)
@@ -1486,7 +1571,6 @@ private struct QiblaSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .sheetDismissToolbar()
         }
-        .navigationViewStyle(.stack)
         .smallMediumSheetPresentation()
     }
 }

@@ -7,7 +7,10 @@ import UIKit
 /// Months are built incrementally, one per run-loop pass (see `buildMonthsIfNeeded`). A full year is
 /// ~400 days × 6 prayers, and computing that in one eager pass stalled the push animation.
 struct PrayerCalendarView: View {
-    @ObservedObject var settings = Settings.shared
+    private let settings = Settings.shared
+    @ObservedObject private var adhanSettings = AdhanSettings.shared
+    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
+    @ObservedObject private var systemSettings = SystemSettings.shared
     /// Prayer times and the location publish from `LiveState`, not `Settings` (see its comment).
     @ObservedObject private var live = LiveState.shared
 
@@ -66,7 +69,7 @@ struct PrayerCalendarView: View {
             ForEach(Self.columns, id: \.self) { column in
                 // Full names, scaled to fit. `Al-Asr` truncates to a meaningless "Al-" if you clip to three
                 // characters, and a user's own spelling can be any length at all.
-                Text(settings.customPrayerName(for: column) ?? column)
+                Text(settings.customPrayerName(for: column) ?? column.localizedDisplay)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
@@ -144,7 +147,7 @@ struct PrayerCalendarView: View {
         let months = self.months
         let city = live.currentLocation?.city ?? ""
         let columns = Self.columns
-        let titles = columns.map { settings.customPrayerName(for: $0) ?? $0 }
+        let titles = columns.map { settings.customPrayerName(for: $0) ?? $0.localizedDisplay }
 
         // Rendering a year of tables is slow enough to drop frames on the main thread.
         DispatchQueue.global(qos: .userInitiated).async {
@@ -196,8 +199,8 @@ struct DayModel: Identifiable {
     let times: [String: String]
 
     var accessibilityLabel: String {
-        let list = times.map { "\($0.key) \($0.value)" }.sorted().joined(separator: ", ")
-        return "Day \(dayOfMonth). \(list)"
+        let list = times.map { "\($0.key.localizedDisplay) \($0.value)" }.sorted().joined(separator: ", ")
+        return String(localized: "Day \(dayOfMonth). \(list)")
     }
 }
 

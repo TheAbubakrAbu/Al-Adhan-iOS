@@ -5,7 +5,10 @@ import CoreLocation
 import UIKit
 
 struct MapView: View {
-    @ObservedObject private var settings = Settings.shared
+    private let settings = Settings.shared
+    @ObservedObject private var adhanSettings = AdhanSettings.shared
+    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
+    @ObservedObject private var systemSettings = SystemSettings.shared
     /// Prayer times and the location publish from `LiveState`, not `Settings` (see its comment).
     @ObservedObject private var live = LiveState.shared
     @Environment(\.dismiss) private var dismiss
@@ -116,11 +119,11 @@ struct MapView: View {
             let mileText = Self.distanceFormatter.string(from: miles as NSNumber)
         else { return nil }
 
-        return "\(mileText) mi / \(kmText) km"
+        return String(localized: "\(mileText) mi / \(kmText) km")
     }
 
     var body: some View {
-        NavigationView {
+        SheetNavigationContainer {
             interactiveMap
                 .edgesIgnoringSafeArea(.all)
                 .overlay(alignment: .top) {
@@ -165,7 +168,6 @@ struct MapView: View {
                 }
                 .preferredColorScheme(scheme)
         }
-        .navigationViewStyle(.stack)
         .accentColor(settings.accentColor.color)
         .tint(settings.accentColor.color)
     }
@@ -192,11 +194,11 @@ struct MapView: View {
                         .foregroundStyle(settings.accentColor.color)
                         .font(.title3)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(city.isEmpty ? fullName : city)
+                        Text(city.isEmpty ? fullName.cityDisplay : city)
                             .font(.headline)
                             .foregroundStyle(.primary)
                         if !state.isEmpty || !country.isEmpty {
-                            Text([state, country].filter { !$0.isEmpty }.joined(separator: ", "))
+                            Text([state, country].filter { !$0.isEmpty }.joined(separator: ", ").cityDisplay)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -214,7 +216,7 @@ struct MapView: View {
                     )
                     onSelectCity(location)
                 } label: {
-                    Text("Select \(city.isEmpty ? "City" : city)")
+                    Text("Select \(city.isEmpty ? String(localized: "City") : city)")
                         .font(.headline)
                         .foregroundColor(.primary)
                         .frame(maxWidth: .infinity)
@@ -306,14 +308,14 @@ struct MapView: View {
     }
 
     private func primaryLocationName(for item: MKMapItem) -> String {
-        item.placemark.locality ?? item.placemark.name ?? "Unknown"
+        item.placemark.locality ?? item.placemark.name ?? String(localized: "Unknown")
     }
 
     private func secondaryLocationName(for item: MKMapItem) -> String {
         let state = item.placemark.administrativeArea ?? ""
         let country = item.placemark.country ?? ""
         let parts = [state, country].filter { !$0.isEmpty }
-        return parts.isEmpty ? formattedName(for: item) : parts.joined(separator: ", ")
+        return (parts.isEmpty ? formattedName(for: item) : parts.joined(separator: ", ")).cityDisplay
     }
 
     private func cityIconName(for item: MKMapItem) -> String {
@@ -439,8 +441,8 @@ private struct AnimatedMarkerBubble: View {
 }
 
 private struct SearchOverlay: View {
-    @ObservedObject private var settings = Settings.shared
-
+    private let settings = Settings.shared
+    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
     @Binding var searchText: String
     let cityItems: [MKMapItem]
     let onSelect: (MKMapItem) -> Void
@@ -462,7 +464,7 @@ private struct SearchOverlay: View {
             SearchBar(text: $searchText.animation(.easeInOut))
 
             if !searchText.isEmpty {
-                Text("\(cityItems.count) match\(cityItems.count == 1 ? "" : "es") found")
+                Text(cityItems.count == 1 ? String(localized: "\(cityItems.count) match found") : String(localized: "\(cityItems.count) matches found"))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(settings.accentColor.color)
                     .frame(maxWidth: .infinity, alignment: .trailing)
@@ -503,8 +505,9 @@ private struct SearchOverlay: View {
 }
 
 private struct SearchResultRow: View {
-    @ObservedObject private var settings = Settings.shared
-
+    private let settings = Settings.shared
+    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
+    @ObservedObject private var systemSettings = SystemSettings.shared
     let item: MKMapItem
     let primaryTitle: String
     let secondaryTitle: String
@@ -559,7 +562,8 @@ private struct SearchResultRow: View {
 }
 
 private struct HomeLocationSummaryCard: View {
-    @ObservedObject private var settings = Settings.shared
+    private let settings = Settings.shared
+    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
     /// Prayer times and the location publish from `LiveState`, not `Settings` (see its comment).
     @ObservedObject private var live = LiveState.shared
 
@@ -568,18 +572,18 @@ private struct HomeLocationSummaryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            locationInfoRow("Home", value: home.city, systemImage: "house.fill", accent: true)
+            locationInfoRow(String(localized: "Home"), value: home.displayCity, systemImage: "house.fill", accent: true)
 
             if let current = live.currentLocation {
-                locationInfoRow("Current", value: current.city, systemImage: "location.fill", accent: true)
+                locationInfoRow(String(localized: "Current"), value: current.displayCity, systemImage: "location.fill", accent: true)
 
                 if let distanceString {
-                    locationInfoRow("Distance", value: distanceString, systemImage: "arrow.right.arrow.left")
+                    locationInfoRow(String(localized: "Distance"), value: distanceString, systemImage: "arrow.right.arrow.left")
                         .font(.subheadline)
                 }
             }
 
-            Text("• Must be at least 48 miles (≈ 77 km) from home to be considered traveling")
+            Text(String(localized: "• Must be at least 48 miles (≈ 77 km) from home to be considered traveling").localizedDigits)
                 .font(.footnote)
                 .foregroundColor(.secondary)
                 .padding(.top, 4)

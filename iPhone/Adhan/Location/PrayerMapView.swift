@@ -5,7 +5,10 @@ import CoreLocation
 // MARK: - PrayerTimesMapView
 
 struct PrayerTimesMapView: View {
-    @ObservedObject private var settings = Settings.shared
+    private let settings = Settings.shared
+    @ObservedObject private var adhanSettings = AdhanSettings.shared
+    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
+    @ObservedObject private var systemSettings = SystemSettings.shared
     /// Prayer times and the location publish from `LiveState`, not `Settings` (see its comment).
     @ObservedObject private var live = LiveState.shared
     @Environment(\.dismiss) private var dismiss
@@ -59,11 +62,7 @@ struct PrayerTimesMapView: View {
                 if !settings.favoriteLocations.isEmpty {
                     favoritesSection
                 }
-                if selectedLocation != nil {
-                    optionsSection
-                }
                 prayerTimesSection
-                optionalTimesSection
                     .id("optionalTimes")
             }
             #if DEBUG
@@ -86,6 +85,11 @@ struct PrayerTimesMapView: View {
                         .font(.body.weight(.semibold))
                 }
                 .tint(settings.accentColor.color)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                if effectiveLocation != nil {
+                    optionsMenu
+                }
             }
         }
         .sheet(isPresented: $showCityPicker) {
@@ -148,20 +152,56 @@ struct PrayerTimesMapView: View {
     }
 
     @ViewBuilder
-    private var optionalTimesSection: some View {
-        if effectiveLocation != nil {
-            Section {
-                optionalTimeToggle("Duhaa", icon: "sun.haze.fill", isOn: optionalBinding($mapShowDuha, fallback: settings.showDuha))
-                optionalTimeToggle("Islamic Midnight", icon: "moon.fill", isOn: optionalBinding($mapShowIslamicMidnight, fallback: settings.showIslamicMidnight))
-                optionalTimeToggle("Last Third of the Night", icon: "moon.stars.fill", isOn: optionalBinding($mapShowLastThird, fallback: settings.showLastThird))
-            } header: {
-                Text("Optional Times")
-            } footer: {
-                Text(isComparing
-                     ? "Computed for both cities from their own sunrise, Maghrib and next Fajr. These switches only affect this screen."
-                     : "Computed from this city\u{2019}s own sunrise, Maghrib and next Fajr. These switches only affect this screen.")
+    /// The screen's options as the toolbar menu (Design Grammar 6): whose clock the times read on,
+    /// the comparison with the reader's own location, and the three optional times, which only
+    /// affect this screen. These used to be an OPTIONS section between the map and the times and an
+    /// OPTIONAL TIMES section under them; what their captions said is the times' footer now.
+    private var optionsMenu: some View {
+        Menu {
+            Picker("Show Times In", selection: $showCityTime) {
+                Label("City Time", systemImage: "building.2").tag(true)
+                Label("My Time", systemImage: "clock").tag(false)
             }
+            Divider()
+            // `.automatic`, not the app's padded switch: inside a menu that style draws double-height
+            // rows with stray checkmarks (see the memory note on menu toggles).
+            Toggle(isOn: $compareAutomaticLocation) {
+                Label("Compare With My Location", systemImage: "arrow.left.arrow.right")
+                Text("Both cities\u{2019} times side by side")
+            }
+            .toggleStyle(.automatic)
+            .disabled(!canCompareAutomaticLocation)
+            Divider()
+            Toggle(isOn: optionalBinding($mapShowDuha, fallback: settings.showDuha)) {
+                Label("Duhaa", systemImage: "sun.haze.fill")
+            }
+            .toggleStyle(.automatic)
+            Toggle(isOn: optionalBinding($mapShowIslamicMidnight, fallback: settings.showIslamicMidnight)) {
+                Label("Islamic Midnight", systemImage: "moon.fill")
+            }
+            .toggleStyle(.automatic)
+            Toggle(isOn: optionalBinding($mapShowLastThird, fallback: settings.showLastThird)) {
+                Label("Last Third of the Night", systemImage: "moon.stars.fill")
+            }
+            .toggleStyle(.automatic)
+        } label: {
+            Image(systemName: "slider.horizontal.3")
         }
+        .fixedMenuOrder()
+        .tint(settings.accentColor.color)
+        .accessibilityLabel("City prayer times options")
+    }
+
+    /// What the former OPTIONS and OPTIONAL TIMES captions said, under the times: whose clock they
+    /// read on, which method the city uses, and where the optional times come from.
+    private var prayerTimesFooter: String {
+        var parts = [timeZoneCaption, methodCaption]
+        if showsAnyOptionalTime {
+            parts.append(isComparing
+                 ? String(localized: "The optional times are computed for both cities from their own sunrise, Maghrib and next Fajr, and only affect this screen.")
+                 : String(localized: "The optional times are computed from this city\u{2019}s own sunrise, Maghrib and next Fajr, and only affect this screen."))
+        }
+        return parts.joined(separator: " ")
     }
 
     /// A `Bool?` store that reads as the user's real toggle until it is set here.
@@ -172,20 +212,6 @@ struct PrayerTimesMapView: View {
         )
     }
 
-    private func optionalTimeToggle(_ title: String, icon: String, isOn: Binding<Bool>) -> some View {
-        Toggle(isOn: isOn.animation(.easeInOut)) {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .foregroundColor(settings.accentColor.color)
-                    .frame(width: 22, alignment: .center)
-                Text(title)
-                    .foregroundColor(.primary)
-            }
-            .font(.subheadline)
-        }
-        .tint(settings.accentColor.color)
-        .onChange(of: isOn.wrappedValue) { _ in settings.hapticFeedback() }
-    }
 
     // MARK: - Hero
 
@@ -205,13 +231,15 @@ struct PrayerTimesMapView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(location.city)
+                            Text(location.displayCity)
                                 .font(.title3.weight(.bold))
                                 .lineLimit(2)
                                 .minimumScaleFactor(0.8)
                             Text(selectedLocation == nil
-                                 ? "Your current location"
-                                 : String(format: "%.3f°, %.3f°", location.latitude, location.longitude))
+                                 ? String(localized: "Your current location")
+                                 // Signed pair, kept one left-to-right run in Arabic (`SymbolNumber`).
+                                 : SymbolNumber.isolated(String(format: "%.3f°, %.3f°", locale: AppLanguage.isArabicScript ? Locale.current : nil,
+                                                                location.latitude, location.longitude)))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -232,9 +260,9 @@ struct PrayerTimesMapView: View {
                     }
 
                     HStack(spacing: 6) {
-                        infoChip(activeMethod, systemImage: "function")
+                        infoChip(activeMethod.localizedDisplay, systemImage: "function")
                         if selectedLocation != nil {
-                            infoChip("Auto", systemImage: "wand.and.stars")
+                            infoChip(String(localized: "Auto"), systemImage: "wand.and.stars")
                         }
                     }
                 }
@@ -295,7 +323,7 @@ struct PrayerTimesMapView: View {
                 .foregroundStyle(.secondary)
                 .padding(.vertical, 2)
         } header: {
-            Text("Favorites")
+            Text("FAVORITES")
         }
     }
 
@@ -331,49 +359,14 @@ struct PrayerTimesMapView: View {
 
     // MARK: - Options
 
-    private var optionsSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 6) {
-                Picker("Show Times In", selection: $showCityTime) {
-                    Text("City Time").tag(true)
-                    Text("My Time").tag(false)
-                }
-                .pickerStyle(.segmented)
-                .onChange(of: showCityTime) { _ in settings.hapticFeedback() }
-
-                Text(timeZoneCaption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 2)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Toggle(isOn: $compareAutomaticLocation.animation(.easeInOut)) {
-                    Label("Compare With My Location", systemImage: "arrow.left.arrow.right")
-                        .font(.subheadline)
-                }
-                .tint(settings.accentColor.color)
-                .disabled(!canCompareAutomaticLocation)
-                .onChange(of: compareAutomaticLocation) { _ in settings.hapticFeedback() }
-
-                Text(methodCaption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 2)
-            }
-        } header: {
-            Text("Options")
-        }
-    }
-
     private var timeZoneCaption: String {
-        let city = selectedLocation.map(shortCity) ?? "the city"
-        return "“City Time” shows each prayer on \(city)’s local clock, the time you’d see if you were there. “My Time” converts those same moments to your current time zone."
+        let city = selectedLocation.map(shortCity) ?? String(localized: "the city")
+        return String(localized: "“City Time” shows each prayer on \(city)’s local clock, the time you’d see if you were there. “My Time” converts those same moments to your current time zone.")
     }
 
     private var methodCaption: String {
-        let city = selectedLocation.map(shortCity) ?? "this city"
-        return "Fajr and Isha vary by method, so \(city) uses the \(activeMethod) method matched to its region. Your location keeps your own method."
+        let city = selectedLocation.map(shortCity) ?? String(localized: "this city")
+        return String(localized: "Fajr and Isha vary by method, so \(city) uses the \(activeMethod.localizedDisplay) method matched to its region. Your location keeps your own method.")
     }
 
     // MARK: - Prayer Times
@@ -394,7 +387,6 @@ struct PrayerTimesMapView: View {
 
                 DatePicker(selection: $selectedDate.animation(.easeInOut), displayedComponents: .date) {
                     Label("Date", systemImage: "calendar")
-                        .font(.subheadline)
                 }
                 .tint(settings.accentColor.color)
 
@@ -409,13 +401,14 @@ struct PrayerTimesMapView: View {
                     }
                 }
             } header: {
-                HStack {
-                    Text("Prayer Times")
-                    Spacer()
-                    Text(isComparing ? "Comparison" : shortCity(location))
+                SectionHeaderLine(String(localized: "PRAYER TIMES")) {
+                    Text(isComparing ? String(localized: "Comparison") : shortCity(location))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(settings.accentColor.color)
+                        .textCase(nil)
                 }
+            } footer: {
+                Text(prayerTimesFooter)
             }
         } else {
             Section {
@@ -423,7 +416,7 @@ struct PrayerTimesMapView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } header: {
-                Text("Prayer Times")
+                Text("PRAYER TIMES")
             }
         }
     }
@@ -446,7 +439,7 @@ struct PrayerTimesMapView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(prayer.displayName)
                     .font(.headline)
-                Text(prayer.nameEnglish)
+                Text(prayer.nameEnglish.localizedDisplay)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -505,7 +498,7 @@ struct PrayerTimesMapView: View {
         HStack(spacing: 10) {
             Image(systemName: row.image)
                 .font(.title3)
-                .foregroundColor(row.name == "Shurooq" ? .primary : settings.accentColor.color)
+                .foregroundColor(row.selected.nameTransliteration == "Shurooq" ? .primary : settings.accentColor.color)
                 .frame(width: 30, alignment: .center)
 
             Text(row.name)

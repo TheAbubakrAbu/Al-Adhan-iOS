@@ -301,7 +301,9 @@ struct SkyView: View {
 /// The sky card's drawing, for one moment `now`. See `SkyView`.
 struct SkyCard: View {
     @Environment(\.appearance) private var appearance
-    @ObservedObject private var settings = Settings.shared
+    private let settings = Settings.shared
+    @ObservedObject private var adhanSettings = AdhanSettings.shared
+    @ObservedObject private var systemSettings = SystemSettings.shared
     /// Prayer times and the location publish from `LiveState`, not `Settings` (see its comment).
     @ObservedObject private var live = LiveState.shared
     @ObservedObject private var scrubber = DayScrubber.shared
@@ -507,7 +509,7 @@ struct SkyCard: View {
 
                 if let weather, !weather.look.isClear {
                     SkyWeatherOverlay(look: weather.look, night: starOpacity > 0.4 || !weather.isDaylight,
-                                      time: now.timeIntervalSinceReferenceDate)
+                                      paused: !isOnScreen || appearance.reduceAnimations)
                         .transition(.opacity)
                 }
             }
@@ -626,7 +628,7 @@ struct SkyCard: View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 8) {
                 SkyPrayerColumn(
-                    title: "CURRENT",
+                    title: String(localized: "CURRENT"),
                     displayName: live.currentPrayer?.displayName,
                     image: live.currentPrayer?.image,
                     timeText: live.currentPrayer.map { settings.formatDate($0.time) },
@@ -635,7 +637,7 @@ struct SkyCard: View {
                 .equatable()
                 Spacer(minLength: 0)
                 SkyPrayerColumn(
-                    title: "UPCOMING",
+                    title: String(localized: "UPCOMING"),
                     displayName: live.nextPrayer?.displayName,
                     image: live.nextPrayer?.image,
                     timeText: live.nextPrayer.map { settings.formatDate($0.time) },
@@ -707,7 +709,7 @@ struct SkyCard: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
 
-                    Text("\(trailing ? "Starts at" : "Started at") \(timeText)")
+                    Text(trailing ? String(localized: "Starts at \(timeText)") : String(localized: "Started at \(timeText)"))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.white)
                         .lineLimit(1)
@@ -726,9 +728,9 @@ struct SkyCard: View {
         }
 
         private var accessibilityText: String {
-            let role = trailing ? "Upcoming prayer" : "Current prayer"
+            let role = trailing ? String(localized: "Upcoming prayer") : String(localized: "Current prayer")
             guard let displayName, let timeText else { return role }
-            return "\(role), \(displayName), \(trailing ? "starts at" : "started at") \(timeText)"
+            return trailing ? String(localized: "\(role), \(displayName), starts at \(timeText)") : String(localized: "\(role), \(displayName), started at \(timeText)")
         }
     }
 
@@ -744,10 +746,10 @@ struct SkyCard: View {
     @ViewBuilder
     private var footer: some View {
         if let playingPrayerName = adhanPlayer.playingPrayerName {
-            adhanStopButton(prayerName: playingPrayerName)
+            adhanStopButton(prayerName: playingPrayerName.localizedDisplay)
                 .frame(maxWidth: .infinity)
         } else if let pendingPrayerName = adhanPlayer.pendingPrayerName {
-            adhanPlayButton(prayerName: pendingPrayerName)
+            adhanPlayButton(prayerName: pendingPrayerName.localizedDisplay)
                 .frame(maxWidth: .infinity)
         } else {
             HStack(spacing: 6) {
@@ -812,7 +814,7 @@ struct SkyCard: View {
 
     private var moonAccessibilityLabel: String {
         let phase = MoonPhase.on(moonDate)
-        return "Moon, \(phase.name), \(phase.illuminationPercent) percent illuminated"
+        return String(localized: "Moon, \(phase.name), \(phase.illuminationPercent) percent illuminated")
     }
 
     /// The moment the moon is drawn for (the footer's glyph and, at night, the one on the arc): the
@@ -1071,7 +1073,7 @@ struct SkyCard: View {
             return [scrubber.previewPrayer?.displayName, settings.formatDate(date)]
                 .compactMap { $0 }.joined(separator: ", ")
         }
-        return ["Now", settings.formatDate(now), live.currentPrayer?.displayName]
+        return [String(localized: "Now"), settings.formatDate(now), live.currentPrayer?.displayName]
             .compactMap { $0 }.joined(separator: ", ")
     }
 
@@ -1128,11 +1130,10 @@ struct SkyCard: View {
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
-    /// Offered for five minutes after a prayer whose adhan the app could not sound in-app, when the
-    /// Silent Mode override is on. That override makes the recording ignore the ringer switch, and iOS
-    /// gives no way to read that switch, so the catch-up cannot know whether playing would be quiet or
-    /// would fill a room (Abu, 2026-10-06: it went off in class). A tap is the only thing that starts
-    /// it, and the button goes away once it does.
+    /// Offered, for five minutes from the prayer's time, in place of an adhan the app chose not to start
+    /// by itself: the phone is in Silent Mode (and "Play In-App Adhan in Silent Mode" is off), or "Play
+    /// Automatically" is off (Abu, 2026-10-19). A tap always sounds it, through Silent Mode, and the
+    /// button goes away once it does. The banner carries the same button, for the other tabs.
     private func adhanPlayButton(prayerName: String) -> some View {
         Button {
             settings.hapticFeedback()
@@ -1152,14 +1153,13 @@ struct SkyCard: View {
             .overlay(Capsule().strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
         }
         .buttonStyle(.plain)
-        .accessibilityHint("Plays the adhan you missed a moment ago")
+        .accessibilityHint("Plays the adhan, even in Silent Mode")
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
-    /// What the footer is showing, as one value, so the swap animates for either adhan branch.
-    private var footerAdhanState: String? {
-        adhanPlayer.playingPrayerName.map { "playing:\($0)" } ?? adhanPlayer.pendingPrayerName.map { "pending:\($0)" }
-    }
+    /// What the footer is showing, as one value, so the swap animates for either adhan branch. The
+    /// banner keys on the same value.
+    private var footerAdhanState: String? { adhanPlayer.bannerKey }
 
     // MARK: Interaction
 

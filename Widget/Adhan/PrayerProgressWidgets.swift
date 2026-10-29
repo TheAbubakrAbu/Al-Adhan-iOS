@@ -176,21 +176,20 @@ func prayerTierColor(for prayer: Prayer, in prayers: [Prayer], entry: PrayersPro
     return skyStyle ? .white.opacity(0.8) : .primary
 }
 
-/// True when this prayer is the one the day is currently in - the same name match the app's own
-/// grid and split use (`currentPrayerName`), so a widget highlights exactly the row the tab does.
+/// True when this prayer is the one the day is currently in, by the same name match the app's own
+/// layouts use (`currentPrayerName`), so a widget fills exactly the tile the tab does.
 func isCurrentPrayer(_ prayer: Prayer, entry: PrayersProvider.Entry) -> Bool {
     guard let current = entry.currentPrayer?.nameTransliteration else { return false }
     return current == prayer.nameTransliteration
 }
 
-/// The rounded well under a prayer cell, ported from the app's `PrayerCellWell` (iPhone/Adhan/
-/// PrayerList.swift) so the widgets' Prayer Grid and Prayer Split read as the same design as the
-/// Adhan tab's own Grid and Split layouts (Abu, 2026-10-05: "you see the updated grid and split we
-/// did for adhan? do the same thing for widgets").
+/// The rounded well under a Prayer Tiles cell, from the app's `PrayerCellWell` (iPhone/Adhan/Prayers/
+/// PrayerList.swift). The current prayer's well fills with the accent at 20% behind a 45% border; every
+/// other gets a bare 5% neutral so the grid still reads as tiles. Over a sky gradient the accent is
+/// unreadable, so there the fill is white and the neutral drops out (the gradient IS the background).
 ///
-/// The current prayer's cell fills with the accent at 20% behind a 45% border; every other cell gets
-/// a bare 5% neutral so the grid still reads as cells. Over a sky gradient the accent is unreadable,
-/// so there the fill is white and the neutral drops out entirely - the gradient IS the background.
+/// Only Prayer Tiles wears it. Prayer Grid and Prayer Split had it from 2026-10-05 and went back to their
+/// flat 4.6.4 cells on 2026-10-19; the tiled look came back on 2026-10-28 as a widget of its own.
 ///
 /// No `softShadow` (the app's well carries one): a widget is a still archived image and the shadow
 /// cost a visible halo on the gradient without adding depth.
@@ -198,15 +197,13 @@ struct PrayerWidgetCellWell: View {
     let isCurrent: Bool
     let accent: Color
     var cornerRadius: CGFloat = 10
-    /// 0 for the split rows, which sit close enough that a neutral fill on each read as banding.
-    var neutralOpacity: Double = 0.05
     var skyStyle: Bool = false
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         let fill: Color = isCurrent
             ? (skyStyle ? Color.white.opacity(0.22) : accent.opacity(0.2))
-            : (skyStyle ? .clear : Color.primary.opacity(neutralOpacity))
+            : (skyStyle ? .clear : Color.primary.opacity(0.05))
         let border: Color = isCurrent
             ? (skyStyle ? Color.white.opacity(0.55) : accent.opacity(0.45))
             : .clear
@@ -220,15 +217,15 @@ struct PrayerWidgetCellWell: View {
 /// only their first member's abbreviation.
 func prayerAbbreviation(_ prayer: Prayer) -> String {
     switch prayer.nameTransliteration {
-    case "Fajr":                    return "FJR"
-    case "Shurooq":                 return "SHQ"
-    case "Duhaa":                   return "DUH"
-    case "Dhuhr", "Dhuhr/Asr":      return "DHR"
-    case "Jumuah":                  return "JUM"
-    case "Asr":                     return "ASR"
-    case "Maghrib", "Maghrib/Isha": return "MGB"
-    case "Isha":                    return "ISH"
-    default:                        return String(prayer.displayName.prefix(3)).uppercased()
+    case "Fajr":                    return String(localized: "FJR", comment: "Three-letter prayer abbreviation")
+    case "Shurooq":                 return String(localized: "SHQ", comment: "Three-letter prayer abbreviation")
+    case "Duhaa":                   return String(localized: "DUH", comment: "Three-letter prayer abbreviation")
+    case "Dhuhr", "Dhuhr/Asr":      return String(localized: "DHR", comment: "Three-letter prayer abbreviation")
+    case "Jumuah":                  return String(localized: "JUM", comment: "Three-letter prayer abbreviation")
+    case "Asr":                     return String(localized: "ASR", comment: "Three-letter prayer abbreviation")
+    case "Maghrib", "Maghrib/Isha": return String(localized: "MGB", comment: "Three-letter prayer abbreviation")
+    case "Isha":                    return String(localized: "ISH", comment: "Three-letter prayer abbreviation")
+    default:                        return String(prayer.displayName.localizedDisplay.prefix(3)).uppercased()
     }
 }
 
@@ -297,7 +294,7 @@ struct PrayerCountdownCircularView: View {
                         .font(.system(size: 10))
                 }
 
-                Text(current.displayName)
+                Text(current.displayName.localizedDisplay)
                     .font(.caption2.weight(.semibold))
                     .lineLimit(1)
 
@@ -375,7 +372,7 @@ struct PrayerWaveView: View {
                 )
 
                 HStack {
-                    Text(current.displayName)
+                    Text(current.displayName.localizedDisplay)
                         .font(.headline)
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
@@ -473,7 +470,7 @@ struct PrayerDayView: View {
     }
 
     private func isCurrent(_ prayer: Prayer) -> Bool {
-        entry.currentPrayer?.nameTransliteration == prayer.nameTransliteration
+        isCurrentPrayer(prayer, entry: entry)
     }
 
     var body: some View {
@@ -487,7 +484,7 @@ struct PrayerDayView: View {
                             Image(systemName: current.image)
                                 .font(.subheadline)
 
-                            Text(current.displayName)
+                            Text(current.displayName.localizedDisplay)
                                 .font(.headline)
                         }
                         .foregroundColor(tint(current))
@@ -522,7 +519,7 @@ struct PrayerDayView: View {
                     ForEach(Array(entry.prayers.enumerated()), id: \.element.id) { index, prayer in
                         if index > 0 { Spacer(minLength: 4) }
                         VStack(spacing: 3) {
-                            Text(prayer.displayName)
+                            Text(prayer.displayName.localizedDisplay)
                                 .font(.caption2.weight(isCurrent(prayer) ? .bold : .semibold))
 
                             Text(prayer.time, style: .time)
@@ -614,6 +611,11 @@ struct FastingCountdownView: View {
         return ("Suhoor ends in", PrayerMinute.suhoorEnd(forFajr: nextFajr), maghrib)
     }
 
+    /// The phase label as the reader sees it; `phase.label` stays the English key the icon matches on.
+    private func phaseLabel(_ label: String) -> String {
+        label == "Iftar in" ? String(localized: "Iftar in") : String(localized: "Suhoor ends in")
+    }
+
     /// A countdown that holds at 0:00 once the deadline passes. Suhoor ends a minute before Fajr and
     /// the timeline's next entry is at Fajr, so for that minute the suhoor entry is still on screen,
     /// and the plain `.timer` style would count back up from zero.
@@ -632,7 +634,9 @@ struct FastingCountdownView: View {
                         Image(systemName: phase.label == "Iftar in" ? "sunset.fill" : "sunrise.fill")
                             .font(.subheadline)
 
-                        Text("\(phase.label) \(countdown(to: phase.deadline))")
+                        // Led right to left in Arabic (`Text.rightToLeftLine`): the key is two arguments.
+                        Text("\(phaseLabel(phase.label)) \(countdown(to: phase.deadline))")
+                            .rightToLeftLine()
                             .font(.headline)
                     }
                     .foregroundColor(accent)
@@ -746,7 +750,7 @@ struct PrayerRowLockView: View {
         } else {
             HStack(alignment: .center, spacing: 4) {
                 ForEach(rowPrayers, id: \.nameTransliteration) { prayer in
-                    let isCurrent = entry.currentPrayer?.nameTransliteration == prayer.nameTransliteration
+                    let isCurrent = isCurrentPrayer(prayer, entry: entry)
 
                     VStack(spacing: 2) {
                         Text(prayerAbbreviation(prayer))
@@ -801,7 +805,7 @@ struct NextPrayerProgressView: View {
                             .padding(.trailing, -4)
                     }
 
-                    Text(current.displayName)
+                    Text(current.displayName.localizedDisplay)
                         .font(.headline)
 
                     Spacer()
@@ -818,7 +822,7 @@ struct NextPrayerProgressView: View {
                     tint: .primary
                 )
 
-                Text("Next: \(next.displayName) \(Text(next.time, style: .time))")
+                Text("Next: \(next.displayName.localizedDisplay) \(Text(next.time, style: .time))")
                     .font(.caption)
             } else {
                 Text("Open app to get prayer times")
@@ -874,7 +878,7 @@ struct PrayerListSmallView: View {
                             .font(.caption2)
                             .frame(width: 12, alignment: .center)
 
-                        Text(prayer.displayName)
+                        Text(prayer.displayName.localizedDisplay)
                             .font(.caption.weight(.semibold))
 
                         Spacer(minLength: 4)
@@ -946,7 +950,7 @@ struct NextPrayerBoardView: View {
                         Image(systemName: current.image)
                             .font(.subheadline)
 
-                        Text(current.displayName)
+                        Text(current.displayName.localizedDisplay)
                             .font(.headline)
 
                         Spacer(minLength: 4)
@@ -958,7 +962,7 @@ struct NextPrayerBoardView: View {
                     }
                     .foregroundColor(skyStyle ? .white : (current.nameTransliteration == "Shurooq" ? .primary : entry.accentColor.color))
 
-                    Text("Next: \(next.displayName) \(Text(next.time, style: .time))")
+                    Text("Next: \(next.displayName.localizedDisplay) \(Text(next.time, style: .time))")
                         .font(.caption)
                         .foregroundColor(skyStyle ? .white.opacity(0.75) : .secondary)
 
@@ -966,9 +970,13 @@ struct NextPrayerBoardView: View {
 
                     // The day's solar arc fills what used to be dead space between the countdown
                     // and the progress bar - nothing below moved, the flexible gap just draws now.
+                    // Lowest priority, so it takes only what the lines above leave. At equal priority the stack
+                    // split the spare height between the arc and the date-and-city pair, and with the weather on
+                    // (a fixed-size chip, so the city line cannot give) the date shrank to its 0.6 floor (2026-10-28).
                     SolarArcGraph(entry: entry, skyStyle: skyStyle, compact: true)
                         .frame(minHeight: 20, maxHeight: .infinity)
                         .padding(.vertical, 1)
+                        .layoutPriority(-1)
 
                     PrayerIntervalProgressBar(
                         current: current,
@@ -997,7 +1005,7 @@ struct NextPrayerBoardView: View {
                                 .font(.caption2)
                                 .frame(width: 12, alignment: .center)
 
-                            Text(prayer.displayName)
+                            Text(prayer.displayName.localizedDisplay)
                                 .font(.caption2.weight(.semibold))
 
                             Spacer(minLength: 4)
