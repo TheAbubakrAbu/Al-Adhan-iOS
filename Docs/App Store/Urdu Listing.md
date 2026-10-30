@@ -22,8 +22,8 @@ Modeled on this folder's `Arabic Listing.md` (its structure and its claims) and 
 
 - **Counts are Python `len()`** of the exact text inside each code block (the bold tally lines are for this
   file, not the store). Re-check after any edit:
-  `python3 -c 'import re;f=chr(96)*3;t=open("Docs/Urdu Listing.md").read();[print(len(b)) for b in re.findall(f+"\n(.*?)\n"+f,t,re.S)]'`
-- **Standard Urdu as Apple's own Urdu pages read it**, with the respectful register (نبی کریم ﷺ).
+  `python3 -c 'import re;f=chr(96)*3;t=open("Docs/App Store/Urdu Listing.md").read();[print(len(b)) for b in re.findall(f+"\n(.*?)\n"+f,t,re.S)]'`
+- **Standard Urdu as Apple's own Urdu pages read it**, with the respectful register (نبی کریم صلی اللہ علیہ وسلم). The honorific is always spelled out: App Store Connect rejects the one-glyph ligature (U+FDFA) as an invalid character.
   Feature names are the labels the app shows (Al-Islam's `Resources/Localizable.xcstrings`, which Al-Adhan
   receives in its sync; see the glossary below).
 - **Inside a sentence the app is الاذان ایپ**, name first, with feminine verbs (ایپ ... کرتی ہے). A bare اذان
@@ -32,10 +32,17 @@ Modeled on this folder's `Arabic Listing.md` (its structure and its claims) and 
   "- " bullet is fine; the English fields use the same.
 - **Urdu punctuation** (۔ ، ؟) and Western digits (13، 21), as Urdu in Pakistan writes them. No version numbers.
 - **Urdu letters, never their Arabic look-alikes:** ی ک ہ ھ ۃ, not ي ك ه ة.
+- **Characters App Store Connect refuses.** On 2026-10-29 it rejected Al-Islam's Urdu What's New and
+  Description ("This field contains one or more invalid characters"), and neither held a hidden character.
+  Store text therefore leaves out the Urdu digits ۰-۹, the izafat zer (اثبات اسلام، حسب منشا), the superscript alef
+  and ۃ (فتوے، زکات), and « » (a label goes in plain "quotes"). Which of the description's four it
+  objects to is not pinned down, so all four stay out of every field in all three apps' Urdu listings.
+  Notes outside the code blocks and the glossary may keep the app's own spellings.
 - **Brand names stay Latin:** Apple, Siri, Apple Watch, Apple Intelligence, iPhone, iPad, Mac, iOS; so do
   PDF, CSV and OC Ummah.
 - **No zabar, zer or shadda in the name, subtitle or keywords:** nobody types them in a search. The
-  description and notes may use them where the app's own label does (اثباتِ اسلام، حسبِ منشا زاویے).
+  description and What's New leave out the izafat zer too, even where the app's own label has it
+  (اثبات اسلام، حسب منشا زاویے): see the rule above.
 - **Only what the English listing claims.** Every feature named here is in `Arabic Listing.md`, which is
   held to Al-Adhan's English `App Store Description.md` and `Whats New.md`. Al-Adhan has no Quran reader and
   no Hadith tab: no Quran or hadith features and no Quran or hadith search terms (the English `Keywords.md`
@@ -176,12 +183,12 @@ Urdu, Arabic and English, and the Siri line says to ask in English or Arabic, si
 نماز ٹریکر
 - ہر نماز ایک ٹیپ سے درج کریں، مسلسل دنوں، مثالی دنوں اور ایک رنگین کیلنڈر کے ساتھ جو دن، ہفتے، مہینے اور سال کے لحاظ سے آپ کی پابندی دکھاتا ہے۔
 - جمعہ اور سفر میں جمع کی گئی نمازیں درست طور پر شمار ہوتی ہیں، اور حیض اور نفاس کے دن مسلسل دنوں کا سلسلہ کبھی نہیں توڑتے۔
-- نماز کی کسی بھی اطلاع پر ٹیپ کر کے «کیا آپ نے نماز پڑھ لی؟» کا جواب دیں، اور «بار بار یاد دہانی کا موڈ» آپ کے چنے ہوئے اوقات میں نماز ادا کرنے تک یاد دلاتا رہے۔
+- نماز کی کسی بھی اطلاع پر ٹیپ کر کے "کیا آپ نے نماز پڑھ لی؟" کا جواب دیں، اور "بار بار یاد دہانی کا موڈ" آپ کے چنے ہوئے اوقات میں نماز ادا کرنے تک یاد دلاتا رہے۔
 
 نماز کے اوقات اور قبلہ
-- درست نماز کے اوقات، جن کا حساب مکمل رازداری سے آپ کی ڈیوائس پر ہوتا ہے، اور ساتھ میں آپ کے علاقے کے لیے تجویز کردہ خودکار طریقہ، حساب کے تمام طریقوں کی فہرست، اور «حسبِ منشا زاویے» جو آپ خود مقرر کریں۔
+- درست نماز کے اوقات، جن کا حساب مکمل رازداری سے آپ کی ڈیوائس پر ہوتا ہے، اور ساتھ میں آپ کے علاقے کے لیے تجویز کردہ خودکار طریقہ، حساب کے تمام طریقوں کی فہرست، اور "حسب منشا زاویے" جو آپ خود مقرر کریں۔
 - آپ کے اوقات کے اوپر ایک جیتا جاگتا آسمان: اہرام اور ایک مسجد والے افق کے اوپر اپنی راہ چلتا سورج، رات کو ستارے، اور اصل منزل میں سہ جہتی چاند۔ دن بھر میں انگلی پھیر کر کسی بھی لمحے کا آسمان دیکھیں۔
-- قبلہ کا قطب نما، اذان کی آوازیں، نماز کی اطلاعات اور پیشگی اطلاعات، اور «ایک نظر میں» کا حصہ، جو مکہ مکرمہ تک فاصلہ، دن کی روشنی، چاند اور آپ کے روزے کا دورانیہ دکھاتا ہے۔
+- قبلہ کا قطب نما، اذان کی آوازیں، نماز کی اطلاعات اور پیشگی اطلاعات، اور "ایک نظر میں" کا حصہ، جو مکہ مکرمہ تک فاصلہ، دن کی روشنی، چاند اور آپ کے روزے کا دورانیہ دکھاتا ہے۔
 - چاشت، شرعی آدھی رات اور آخری تہائی کے اختیاری اوقات، اور کسی بھی دوسرے شہر کے نماز کے اوقات۔
 - اگلے 13 مہینوں کا نماز کا کیلنڈر، جسے آپ PDF یا CSV میں برآمد کر سکتے ہیں۔
 - نماز کے اوقات اور الٹی گنتی کے ویجیٹس، جن میں آسمان والے ویجیٹس اور لاک اسکرین کے ویجیٹس بھی شامل ہیں، اور Apple Watch کی مکمل ایپ۔
@@ -189,8 +196,8 @@ Urdu, Arabic and English, and the Siri line says to ask in English or Arabic, si
 منفرد خصوصیات
 - سفر موڈ: سفر میں نمازیں قصر اور جمع کریں، خودکار یا دستی طور پر، iPhone اور Apple Watch کے درمیان ہم آہنگی کے ساتھ۔
 - آپ کی ڈیوائس پر اے آئی سے تلاش: دعاؤں، اذکار اور اللہ کے ننانوے ناموں میں صرف الفاظ کے بجائے معنی کے لحاظ سے تلاش کریں۔ معنی سے تلاش فی الحال انگریزی جملوں سے ہوتی ہے۔
-- Apple Intelligence کے ساتھ، «اے آئی سے پوچھیں» انہی ذرائع سے جواب دیتا ہے جو وہ آپ کو دکھاتا ہے اور جن کا حوالہ دیتا ہے، اور کبھی فتویٰ نہیں دیتا۔
-- «نمازوں کے حسبِ منشا نام»: ہر نماز کا نام ویسے لکھیں جیسے آپ بولتے ہیں، اور وہ پوری ایپ میں اسی طرح نظر آئے گا۔
+- Apple Intelligence کے ساتھ، "اے آئی سے پوچھیں" انہی ذرائع سے جواب دیتا ہے جو وہ آپ کو دکھاتا ہے اور جن کا حوالہ دیتا ہے، اور کبھی فتوے نہیں دیتا۔
+- "نمازوں کے حسب منشا نام": ہر نماز کا نام ویسے لکھیں جیسے آپ بولتے ہیں، اور وہ پوری ایپ میں اسی طرح نظر آئے گا۔
 - Siri اور شارٹ کٹس: مغرب کا وقت، موجودہ نماز یا اگلی نماز انگریزی یا عربی میں پوچھیں، کیونکہ Siri اردو نہیں بولتا۔
 
 رمضان
@@ -199,12 +206,12 @@ Urdu, Arabic and English, and the Siri line says to ask in English or Arabic, si
 - ہجری تاریخ میں کمی بیشی، اور مغرب پر ہجری تاریخ بدلنے کا اختیار۔
 
 روزانہ کی یاد دہانی اور سیکھنا
-- «آج»: آج کی دعا، اللہ کا ایک نام اور آج کی یاد دہانی، ڈائری اور تسبیح کاؤنٹر کے ساتھ۔
-- مستند اذکار، حصن المسلم اور دعاؤں کے مجموعے، «سنیں» کے بٹن کے ساتھ جو عربی متن بلند آواز میں پڑھ کر سناتا ہے۔
+- "آج": آج کی دعا، اللہ کا ایک نام اور آج کی یاد دہانی، ڈائری اور تسبیح کاؤنٹر کے ساتھ۔
+- مستند اذکار، حصن المسلم اور دعاؤں کے مجموعے، "سنیں" کے بٹن کے ساتھ جو عربی متن بلند آواز میں پڑھ کر سناتا ہے۔
 - اللہ کے ننانوے نام تفصیل سے، مسجد اور حلال کھانے کی تلاش، ہجری تاریخ کی تبدیلی، اور اسلامی وال پیپرز۔
-- نماز، روزہ، زکوٰۃ، حج، عمرہ، وضو، غسل، اور جمعہ اور عید کی نمازوں کے لیے «عملی رہنمائی»۔
-- 21 درجوں کے ریڈنگ ٹیسٹ کے ساتھ عربی حروف سیکھیں، اور «تجوید کی بنیادیں» میں تلاوت کے احکام۔
-- «اثباتِ اسلام»، «قرآن کے معجزات»، اور اسلام اور ایمان کے ارکان پڑھیں۔
+- نماز، روزہ، زکات، حج، عمرہ، وضو، غسل، اور جمعہ اور عید کی نمازوں کے لیے "عملی رہنمائی"۔
+- 21 درجوں کے ریڈنگ ٹیسٹ کے ساتھ عربی حروف سیکھیں، اور "تجوید کی بنیادیں" میں تلاوت کے احکام۔
+- "اثبات اسلام"، "قرآن کے معجزات"، اور اسلام اور ایمان کے ارکان پڑھیں۔
 
 آپ کے انداز میں
 - انٹرفیس اردو، عربی اور انگریزی میں، اس زبان کے مطابق جو آپ iOS کی سیٹنگز میں ایپ کے لیے منتخب کریں۔ اسلام ٹیب کے تفصیلی مضامین فی الحال انگریزی میں ہیں۔
@@ -217,21 +224,22 @@ Urdu, Arabic and English, and the Siri line says to ask in English or Arabic, si
 چاہے آپ نماز کے اوقات ڈھونڈ رہے ہوں، قبلہ کی سمت، یا اسلام کی گہری سمجھ، آج ہی الاذان ایپ ڈاؤن لوڈ کریں اور اپنا ایمانی سفر جاری رکھیں۔
 ```
 
-**3,837 / 4,000 characters.**
+**3,832 / 4,000 characters.**
 
 ## 6. What's New
 
-The release that adds the Urdu interface. The Urdu interface comes first: Al-Islam's Urdu "اردو انٹرفیس" and
+Version 2.6.6, the release that adds the Urdu interface. The Urdu interface comes first: Al-Islam's Urdu "اردو انٹرفیس" and
 "زبان کا انتخاب", without its surah, hadith-book and tajweed-course lines (not Al-Adhan features), plus the
 Arabic text's home-screen name line (the sync derives the Urdu display name, الاذان, from the catalog's
 "Al-Adhan"). The Arabic text's clause on the city name in the interface language is left out: it is not
-checked for Urdu. Below it is the rest of the Arabic listing's What's New (the English notes at the top of
-`Whats New.md`, Version 2.6.5), translated under the same headings, with its same two changes:
-- **Wallpapers:** the English says "Two new wallpapers", the second a Free Palestine poster with the Dome of
-  the Rock. That poster is not new (the photo wallpaper has shipped since 2025), so only OC Ummah's desert
-  night is listed.
-- **Tips & Tricks:** the English "150 Tips & Tricks" is not true of Al-Adhan, which shows fewer of them (the
-  catalogue is filtered per app). No count is given.
+checked for Urdu. The language section gains one line saying the app speaks Arabic too (the English "Languages"
+line). Below them are the English notes at the top of `Whats New.md` (Version 2.6.6), translated
+under the Arabic listing's headings. Version 2.6.5 went live on 2026-10-15 with English notes only, so nothing from it is repeated here.
+
+Translation notes:
+- **The clocks change** is the daylight-saving change (گھڑیوں کا وقت بدلنا).
+- **Catalog labels with izafat zer or ۂ** (عربی حروفِ تہجی، حروفِ علت، ہمزۂ وصل) appear without them,
+  per the character rule in the Guidelines; the honorific is spelled out.
 
 ```
 الاذان ایپ اب مکمل طور پر اردو میں ہے، نماز کے اوقات، قبلہ، اسلام ٹیب اور ترتیبات میں دائیں سے بائیں انٹرفیس کے ساتھ۔
@@ -239,49 +247,44 @@ checked for Urdu. Below it is the rest of the Arabic listing's What's New (the E
 اردو انٹرفیس:
 - تمام اسکرینیں، مینیو، ترتیبات، اطلاعات اور ویجیٹس اردو میں، iPhone، iPad، Mac اور Apple Watch پر۔
 - ہر جگہ دائیں سے بائیں ترتیب، جبکہ انگریزی متن، جیسے دعاؤں کے انگریزی ترجمے، آسانی سے پڑھنے کے لیے بائیں سے دائیں رہتا ہے۔
-- ہوم اسکرین پر ایپ کا نام اردو میں: «الاذان»۔
+- ہوم اسکرین پر ایپ کا نام اردو میں: "الاذان"۔
 - نماز کی اطلاعات اردو میں آتی ہیں۔
-- ہندسے iOS کی ترتیبات کے مطابق: عام طور پر 0-9، اور اگر آپ نے اردو ہندسے چنے ہیں تو ۰-۹۔
+- ہندسے iOS کی ترتیبات کے مطابق: عام طور پر 0-9، اور اگر آپ نے اردو ہندسے چنے ہیں تو اردو ہندسے۔
 
 زبان کا انتخاب:
-- ایپ اس زبان کی پیروی کرتی ہے جو آپ iOS کی سیٹنگز میں اس کے لیے منتخب کریں، اور ایپ کی ترتیبات میں «زبان» کی قطار آپ کو وہاں لے جاتی ہے۔
+- ایپ اس زبان کی پیروی کرتی ہے جو آپ iOS کی سیٹنگز میں اس کے لیے منتخب کریں، اور ایپ کی ترتیبات میں "زبان" کی قطار آپ کو وہاں لے جاتی ہے۔
+- الاذان ایپ عربی میں بھی دستیاب ہے۔
 - زبان بدلنے پر آپ کی اطلاعات نئی زبان میں دوبارہ ترتیب پاتی ہیں۔
 - Siri اردو نہیں بولتا، اس لیے Siri سے انگریزی یا عربی میں نماز کے اوقات پوچھیں۔
 - اسلام ٹیب کے تفصیلی مضامین فی الحال انگریزی میں ہیں۔
 
-آسمان:
-- چاند پر ٹیپ کر کے اصل منزل میں سہ جہتی چاند دیکھیں، اور اسے جیسے چاہیں گھمائیں۔
-- افق پر اہرام اور ایک مسجد، جنہیں دن میں سورج اور رات کو چاند روشن کرتا ہے۔
-- «آسمان پوری اسکرین پر» کا اختیار پورے اذان ٹیب کو آسمان کے رنگوں سے بھر دیتا ہے۔
-- آسمان والے ویجیٹس اور Apple Watch کی کمپلیکیشن رات کا آسمان ستاروں کے ساتھ دکھاتے ہیں، اور سفر میں عشاء کے اصل وقت پر رات میں بدل جاتے ہیں۔
+نماز کے اوقات:
+- الٹی گنتی کے نیچے آج کی ہجری تاریخ، یا اس ہفتے کی، اور گھڑیوں کا وقت بدلنے سے ایک دن پہلے اطلاع۔
+- نماز کے اوقات کے پانچ انداز، جن میں شیشے جیسی ٹائلز اور درمیان میں رکھی ٹائلز شامل ہیں۔
 
-نماز کے اوقات اور قبلہ:
-- حساب کے کئی طریقوں میں زیادہ درست اوقات، برونائی کے لیے نیا طریقہ، اور خطِ استوا سے دور علاقوں میں بہتر حساب۔
-- سفر موڈ کی پٹی بتاتی ہے کہ نمازیں کیوں جمع ہو رہی ہیں اور آپ گھر سے کتنے دور ہیں۔
-- قبلہ کی سوئی ہر سائز میں ہموار گھومتی ہے، سمت ابھی طے نہ ہوئی ہو تو بتا دیتی ہے، اور کیلیبریشن کی پیشکش کرتی ہے۔
-
-اطلاعات اور نماز ٹریکر:
-- نماز کی اطلاع پر ٹیپ کرنے سے «کیا آپ نے نماز پڑھ لی؟» پوچھا جاتا ہے، اور آپ ایک ٹیپ سے نماز درج کر لیتے ہیں۔
-- «بار بار یاد دہانی کا موڈ» اب اپنے الگ صفحے پر: یاد دہانیوں کا درمیانی وقفہ، آخری یاد دہانی اور شروع ہونے کا وقت خود چنیں۔
-- اگر آپ چند منٹ دیر سے ایپ کھولیں تو وہ ایک بار اذان چلانے کی پیشکش کرتی ہے۔
-- اذان چلتے وقت آپ اسے ایپ میں کہیں سے بھی روک سکتے ہیں۔
+اطلاعات:
+- نماز کی ہر اطلاع پر "کیا آپ نے نماز پڑھ لی؟" کے بٹن۔
+- "اطلاعات کی اجازت دیں": ایپ کی بھیجی ہوئی ہر چیز کے لیے ایک ہی سوئچ۔
+- اطلاعات، نماز کی اطلاعات اور بار بار یاد دہانی کے موڈ کی ترتیبات نئے سرے سے، ہر نماز کے الگ صفحے کے ساتھ۔
+- ایپ کے اندر اذان خاموش موڈ کا خیال رکھتی ہے، اور اس کی جگہ "چلائیں" کا بٹن پیش کرتی ہے۔
 
 اسلام ٹیب:
-- «آج»: آج کی دعا، اللہ کا ایک نام اور آج کی یاد دہانی ایک ہی اسکرین پر۔
-- ریڈنگ ٹیسٹ کے 21 درجے، الگ الگ حروف سے لے کر بغیر اعراب کے متن تک۔
-- انگریزی میں نئے کتب خانے: «اثباتِ اسلام»، «انبیاء کے معجزات» اور «نبی کریم ﷺ کی پیش گوئیاں»۔
-- «اے آئی سے پوچھیں» اپنے ذرائع نمبر والے کارڈز میں بتاتا ہے، جنہیں آپ ایک ٹیپ سے کھول سکتے ہیں۔
-- نیا وال پیپر: OC Ummah کی صحرائی رات۔
+- "نبی کریم صلی اللہ علیہ وسلم کی سنتیں": روزانہ کی 129 سنتیں، ان کے حوالوں کے ساتھ۔
+- "عربی حروف تہجی": ہمزہ وصل، حروف علت، الف مقصورہ اور یاء کا فرق، اور "نحو" کا حصہ، ہر ایک مشقوں کے ساتھ۔
+- ہر روایت کا صفحہ اب بتاتا ہے کہ اس میں کیا نمایاں ہے۔
+- خطبے اور رقیہ کی نئی رہنمائی، اور جمعہ کی مزید مکمل رہنمائی۔
+- کسی بھی ٹیب کے حصے سمیٹیں یا چھپائیں، لمبی فہرستوں میں نمبروں والی پٹیاں، اور ہر وسیلے میں تلاش کی پٹی۔
 
 ترتیبات:
-- سادہ موڈ صرف بنیادی چیزیں سامنے رکھتا ہے، اور آپ جب چاہیں مکمل موڈ پر جا سکتے ہیں۔
-- ترتیبات کے ہر صفحے پر تلاش کی پٹی، اور «تجاویز اور ترکیبیں» کا حصہ۔
+- ترتیبات کا ہر صفحہ ایک ہی انداز میں، ہر کنٹرول کے نیچے وضاحت کے ساتھ۔
+- "اسلام کی ترتیبات": اسلام ٹیب کے لیے الگ صفحہ۔
+- App Store پر نئی اپ ڈیٹ آنے پر "اپ ڈیٹ دستیاب ہے" کی اطلاع۔
 
 اصلاحات اور بہتریاں:
-- Apple Watch پر تیز آغاز، اور iPhone، iPad، Mac اور Apple Watch پر درجنوں کریش کی اصلاحات۔
+- ترتیبات کی تیز تر اسکرینیں، بغیر اٹکے چلنے والے مینیو، اور iPhone، iPad، Mac اور Apple Watch پر اصلاحات۔
 ```
 
-**2,675 / 4,000 characters.**
+**2,220 / 4,000 characters.**
 
 ## Glossary
 
@@ -324,8 +327,12 @@ submitting.
 | How-To Guides | عملی رہنمائی |
 | Reading Test, Tajweed Foundations | ریڈنگ ٹیسٹ، تجوید کی بنیادیں |
 | Proving Islam, Miracles of the Quran | اثباتِ اسلام، قرآن کے معجزات |
-| Miracles of the Prophets, Prophecies of the Prophet | انبیاء کے معجزات، نبی کریم ﷺ کی پیش گوئیاں |
+| Miracles of the Prophets, Prophecies of the Prophet | انبیاء کے معجزات، نبی کریم صلی اللہ علیہ وسلم کی پیش گوئیاں |
 | Tips & Tricks, Language (Settings row) | تجاویز اور ترکیبیں، زبان |
 | Accent Color, Lock Screen | نمایاں رنگ، لاک اسکرین |
 | Widgets, Widgets with a sky, Prayer Countdown | ویجیٹس، آسمان والے ویجیٹس، نماز کی الٹی گنتی |
 | complication*, Live Activity* | کمپلیکیشن، لائیو ایکٹیویٹی |
+| Allow Notifications, Prayer Notifications, Play (button), Silent Mode | اطلاعات کی اجازت دیں، نماز کی اطلاعات، چلائیں، خاموش موڈ |
+| Hijri Date, Islam Settings, Update Available | ہجری تاریخ، اسلام کی ترتیبات، اپ ڈیٹ دستیاب ہے |
+| Sunnahs of the Prophet (the honorific spelled out) | نبی کریم صلی اللہ علیہ وسلم کی سنتیں |
+| Arabic Alphabet, Hamzat al-Wasl, Vowel Letters, Grammar (store spelling, no zer or ۂ) | عربی حروف تہجی، ہمزہ وصل، حروف علت، نحو |

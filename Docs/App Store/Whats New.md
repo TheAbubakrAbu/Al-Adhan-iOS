@@ -1,3 +1,35 @@
+# Version 2.6.6
+
+Arabic and Urdu, the Islamic date on your prayer sky, "Did you pray?" on every prayer notification, and five prayer layouts.
+
+Languages:
+- Al-Adhan now speaks Arabic and Urdu: the whole app follows your iPhone's language, from prayer times to the widgets. The Islam tab's long articles stay English for now.
+
+Prayer times:
+- Today's Islamic date, or this week's, under the countdown, with a notice the day before the clocks change.
+- Five prayer layouts, including glass tiles and centered tiles.
+
+Notifications:
+- "Did you pray?" buttons on every prayer notification.
+- Allow Notifications: one switch over everything the app sends.
+- Notification, prayer notification and Nagging Mode settings rebuilt, with a page per prayer.
+- The in-app adhan respects Silent Mode and offers a Play button instead.
+
+Islamic Tools:
+- Sunnahs of the Prophet: 129 daily sunnahs with their sources.
+- Arabic Alphabet: Hamzat al-Wasl, Vowel Letters, Alif Maqsurah or Yaa, and a Grammar section, each with drills.
+- Each riwayah's profile now says what stands out in it.
+- New guides for the Khutbah and Ruqyah, and a fuller Jumuah guide.
+- Fold or hide a tab's sections, numbered rails on long lists, and a search bar on every resource.
+
+Settings:
+- Every settings page in one grammar, with a caption under each control.
+- Islam Settings, a page of its own for the Islam tab.
+- An Update Available notice when a newer version is on the App Store.
+
+Bug fixes and optimizations:
+- Faster settings screens, lag-free menus, and fixes across iPhone, iPad, Mac and Apple Watch.
+
 # Version 2.6.5
 
 A 3D moon and a skyline under the sun's path, "Did you pray?" from any prayer notification, Simple Mode, and more accurate prayer times.

@@ -20,8 +20,8 @@ Modeled on Al-Islam's `Docs/App Store/Arabic Listing.md`, whose style and glossa
 
 - **Counts are Python `len()`** of the exact text inside each code block (the bold tally lines are for this
   file, not the store). Re-check after any edit:
-  `python3 -c 'import re;f=chr(96)*3;t=open("Docs/Arabic Listing.md").read();[print(len(b)) for b in re.findall(f+"\n(.*?)\n"+f,t,re.S)]'`
-- **Modern Standard Arabic as Apple's own Arabic pages read it**, with the respectful register (النبي ﷺ).
+  `python3 -c 'import re;f=chr(96)*3;t=open("Docs/App Store/Arabic Listing.md").read();[print(len(b)) for b in re.findall(f+"\n(.*?)\n"+f,t,re.S)]'`
+- **Modern Standard Arabic as Apple's own Arabic pages read it**, with the respectful register (النبي صلى الله عليه وسلم). The honorific is always spelled out: App Store Connect rejects the one-glyph ligature (U+FDFA) as an invalid character.
   Feature names are the labels the app shows (Al-Islam's `Resources/Localizable.xcstrings`, which Al-Adhan
   receives in its sync; see the glossary below).
 - **Inside a sentence the app is تطبيق الأذان.** A bare الأذان in running text reads as the call to prayer
@@ -207,13 +207,14 @@ tab); and a line on the Arabic interface opens على طريقتك, as in Al-Isl
 
 ## 6. What's New
 
-The release that adds the Arabic interface. The Arabic interface comes first; below it are the English notes
-at the top of `Whats New.md` (Version 2.6.5), translated under the same headings, with two changes:
-- **Wallpapers:** the English says "Two new wallpapers", the second a Free Palestine poster with the Dome of
-  the Rock. That poster is not new (the photo wallpaper has shipped since 2025), so only OC Ummah's desert
-  night is listed.
-- **Tips & Tricks:** the English "150 Tips & Tricks" is not true of Al-Adhan, which shows fewer of them (the
-  catalogue is filtered per app). No count is given.
+Version 2.6.6, the release that adds the Arabic interface. The Arabic interface and the choice of
+language come first, unchanged; the language section gains one line saying the app speaks Urdu too
+(the English "Languages" line). Below them are the English notes at the top of `Whats New.md`
+(Version 2.6.6), translated under the same headings, with Islamic Tools as تبويب الإسلام. Version 2.6.5 went live on 2026-10-15 with English notes only, so nothing from it is repeated here.
+
+Translation notes:
+- **The clocks change** is the daylight-saving change (تغيير التوقيت).
+- **Sunnahs of the Prophet:** the catalog's label ends in the one-glyph honorific; the store spells it out.
 
 ```
 تطبيق الأذان كله الآن بالعربية، بواجهة من اليمين إلى اليسار في المواقيت والقبلة وتبويب الإسلام والإعدادات.
@@ -228,42 +229,37 @@ at the top of `Whats New.md` (Version 2.6.5), translated under the same headings
 
 اختيار اللغة:
 - يتبع التطبيق اللغة التي تختارها له في إعدادات iOS، ويوصلك إليها صف «اللغة» في إعدادات التطبيق.
+- التطبيق متاح بالأردية أيضًا.
 - عند تغيير اللغة تُعاد جدولة إشعاراتك باللغة الجديدة.
 - تبقى المقالات المفصّلة في تبويب الإسلام بالإنجليزية حاليًا.
 
-السماء:
-- اضغط على القمر لترى قمرًا ثلاثي الأبعاد في طوره الحقيقي، وأدِره كما تشاء.
-- أهرامات ومسجد على الأفق، تضيئها الشمس نهارًا والقمر ليلًا.
-- خيار «السماء تملأ الشاشة» يلوّن تبويب الأذان كله بألوان السماء.
-- أدوات السماء ومضاعفة Apple Watch تعرض سماء الليل بنجومها، وتنتقل إلى الليل عند وقت العشاء الفعلي في السفر.
+مواقيت الصلاة:
+- التاريخ الهجري لليوم، أو لهذا الأسبوع، تحت العد التنازلي، مع تنبيه قبل يوم من تغيير التوقيت.
+- خمسة تخطيطات لمواقيت الصلاة، منها مربعات زجاجية ومربعات في منتصف الشاشة.
 
-مواقيت الصلاة والقبلة:
-- مواقيت أدق في كثير من طرق الحساب، وطريقة جديدة لبروناي، وحساب أفضل في المناطق البعيدة عن خط الاستواء.
-- شريط «وضع السفر» يشرح سبب جمع الصلوات وكم تبعد عن بيتك.
-- تدور إبرة القبلة بسلاسة في كل الأحجام، وتخبرك إن لم يتحدد الاتجاه بعد، وتعرض عليك المعايرة.
-
-الإشعارات ومتتبّع الصلاة:
-- الضغط على إشعار الصلاة يسألك «هل صلّيت؟»، فتعلّمها بضغطة واحدة.
-- «وضع التذكير المتكرر» في صفحة خاصة به: اختر المدة بين التذكيرات، وآخر التذكيرات، ومتى يبدأ.
-- إن فتحت التطبيق متأخرًا بضع دقائق، يعرض عليك تشغيل الأذان مرة واحدة.
-- يمكنك إيقاف الأذان أثناء تشغيله من أي مكان في التطبيق.
+الإشعارات:
+- أزرار «هل صلّيت؟» في كل إشعار صلاة.
+- «السماح بالإشعارات»: مفتاح واحد لكل ما يرسله التطبيق.
+- إعدادات الإشعارات وإشعارات الصلاة و«وضع التذكير المتكرر» بتصميم جديد، مع صفحة لكل صلاة.
+- يلتزم الأذان داخل التطبيق بالوضع الصامت، ويعرض عليك زر «تشغيل» بدلًا من ذلك.
 
 تبويب الإسلام:
-- «اليوم»: دعاء اليوم واسم من أسماء الله الحسنى وتذكرة اليوم في شاشة واحدة.
-- «اختبار القراءة» في ٢١ مستوًى، من الحروف المفردة إلى النص بلا تشكيل.
-- مكتبات جديدة بالإنجليزية: «إثبات الإسلام» و«معجزات الأنبياء» و«نبوءات النبي ﷺ».
-- «اسأل الذكاء الاصطناعي» يذكر مصادره في بطاقات مرقّمة تفتحها بضغطة.
-- خلفية جديدة: ليلة الصحراء من OC Ummah.
+- «سنن النبي صلى الله عليه وسلم»: ١٢٩ سنة يومية مع مصادرها.
+- «الأبجدية العربية»: همزة الوصل، وحروف العلة، والألف المقصورة والياء، وقسم «الإعراب»، ولكل منها تدريبات.
+- صفحة كل رواية تذكر الآن ما يميزها.
+- أدلة جديدة للخطبة والرقية، ودليل أوفى لصلاة الجمعة.
+- طي أقسام أي تبويب أو إخفاؤها، وأشرطة مرقمة في القوائم الطويلة، وشريط بحث في كل مصدر.
 
 الإعدادات:
-- «الوضع المبسّط» يُبقي الأساسيات فقط على الشاشة، وبإمكانك التبديل إلى الوضع الكامل متى شئت.
-- شريط بحث في كل صفحة إعدادات، وقسم «نصائح وحيل».
+- صفحات الإعدادات كلها بأسلوب واحد، مع شرح تحت كل خيار.
+- «إعدادات الإسلام»: صفحة خاصة بتبويب الإسلام.
+- تنبيه «يتوفر تحديث» عند صدور إصدار أحدث في App Store.
 
 إصلاحات وتحسينات:
-- تشغيل أسرع على Apple Watch، وإصلاح عشرات الأعطال على iPhone وiPad وMac وApple Watch.
+- شاشات إعدادات أسرع، وقوائم بلا تأخير، وإصلاحات على iPhone وiPad وMac وApple Watch.
 ```
 
-**2,411 / 4,000 characters.**
+**2,006 / 4,000 characters.**
 
 ## Glossary
 
@@ -300,7 +296,11 @@ Arabic pages use.
 | How-To Guides | الأدلة العملية |
 | Reading Test, Tajweed Foundations | اختبار القراءة، أساسيات التجويد |
 | Proving Islam, Miracles of the Quran | إثبات الإسلام، معجزات القرآن |
-| Miracles of the Prophets, Prophecies of the Prophet | معجزات الأنبياء، نبوءات النبي ﷺ |
+| Miracles of the Prophets, Prophecies of the Prophet | معجزات الأنبياء، نبوءات النبي صلى الله عليه وسلم |
 | Tips & Tricks, Language (Settings row) | نصائح وحيل، اللغة |
 | Accent Color, Lock Screen | لون التمييز، شاشة القفل |
 | widgets*, complication*, Live Activity* | الأدوات، المضاعفة، النشاط المباشر |
+| Allow Notifications, Prayer Notifications, Play (button), Silent Mode | السماح بالإشعارات، إشعارات الصلاة، تشغيل، الوضع الصامت |
+| Hijri Date, Islam Settings, Update Available | التاريخ الهجري، إعدادات الإسلام، يتوفر تحديث |
+| Sunnahs of the Prophet (the honorific spelled out) | سنن النبي صلى الله عليه وسلم |
+| Arabic Alphabet, Hamzat al-Wasl, Vowel Letters, Grammar | الأبجدية العربية، همزة الوصل، حروف العلة، الإعراب |
